@@ -2,9 +2,16 @@
   "name": "udhaar-agent",
   "private": true,
   "description": "Udhaar Agent shop server. The only dependency is the WhatsApp Web library for WA_PROVIDER=web.",
-  "engines": { "node": ">=22" },
-  "scripts": { "test": "node --test test/*.test.js" },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
   "dependencies": {
     "@whiskeysockets/baileys": "7.0.0-rc14"
+  },
+  "optionalDependencies": {
+    "pg": "^8.23.1"
   }
 }

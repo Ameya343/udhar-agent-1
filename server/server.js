@@ -39,6 +39,7 @@ const C = require('../core/agent-core.js');
 const { createWhatsapp, parseMetaWebhook } = require('./whatsapp.js');
 const { createWebTransport } = require('./wa-web.js');
 const { createBrain } = require('./brain.js');
+const { createFileStore, openStore } = require('./store.js');
 
 const ROOT = path.join(__dirname, '..');
 const MAX_BODY = 16 * 1024;
@@ -62,25 +63,19 @@ function createServer(opts) {
   const env = opts.env || process.env;
   const shopId = C.DEMO_SHOPS[env.SHOP] ? env.SHOP : 'gupta';
   const dataDir = path.resolve(env.DATA_DIR || path.join(ROOT, 'data'));
-  const file = path.join(dataDir, shopId + '.json');
   const timeoutMs = +env.LLM_TIMEOUT_MS || 8000;
   const others = parseOtherShops(env.OTHER_SHOPS);
   const fetchImpl = opts.fetch || globalThis.fetch;
   const today = opts.today || localToday;
 
-  fs.mkdirSync(dataDir, { recursive: true });
-  let state = null;
-  try { state = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { state = null; }
+  const store = opts.store || createFileStore(dataDir, shopId);
+  let state = store.load();
   if (!state || !state.shop) { state = C.freshShop(shopId, today()); save(); }
   // a khata saved before wholesalers existed gets the shop's demo wholesalers once; nothing else in it changes
   if (!state.wsSeeded) { const added = C.seedWholesalers(state, shopId); state.wsSeeded = true; if (added.length) console.log('Added wholesalers: ' + added.join(', ')); save(); }
   if (env.SHOP_CITY && state.shop.city !== env.SHOP_CITY) { state.shop.city = String(env.SHOP_CITY).slice(0, 60); save(); } // the AI is told where the shop is
 
-  function save() {
-    const tmp = file + '.' + process.pid + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(state));
-    fs.renameSync(tmp, file);
-  }
+  function save() { store.save(state); }
 
   // The linked-device transport exists whenever it is chosen or a LINK_KEY is set, so the number can be linked
   // (and stay linked) before the switch; its messages are answered only with WA_PROVIDER=web.
@@ -323,7 +318,7 @@ function createServer(opts) {
   server.whatsapp = wa;
   server.web = web;
   if (web && webOn) web.start();
-  server.on('close', () => { if (web) web.stop(); });
+  server.on('close', () => { if (web) web.stop(); store.close().catch(() => {}); });
   server.idle = () => queue.then(() => wa.idle()).then(() => web && web.idle());
   return server;
 }
@@ -380,7 +375,10 @@ if (require.main === module) {
   const fromFile = loadEnvFile(envFile, process.env);
   if (fromFile.length) console.log('Read ' + fromFile.length + ' setting(s) from ' + envFile + ': ' + fromFile.join(', '));
   const port = +process.env.PORT || 8000;
-  createServer().listen(port, '0.0.0.0', () => {
+  const shopId = C.DEMO_SHOPS[process.env.SHOP] ? process.env.SHOP : 'gupta';
+  openStore(process.env, path.resolve(process.env.DATA_DIR || path.join(ROOT, 'data')), shopId).then((store) => {
+  createServer({ store }).listen(port, '0.0.0.0', () => {
     console.log('Udhaar Agent (' + (process.env.SHOP || 'gupta') + ') on :' + port + ', AI chain: ' + [process.env.LLM_BASE_URL ? 'custom' : '', process.env.AGENT37_LLM_PROXY_URL ? 'router' : ''].filter(Boolean).concat('rules').join(' -> '));
   });
+}, (e) => { console.error('Storage failed to start: ' + e.message); process.exit(1); });
 }
