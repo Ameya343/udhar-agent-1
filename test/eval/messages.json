@@ -1,0 +1,1078 @@
+[
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Kitna balance bacha hai mera",
+  "intent": [
+   "balance"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C01"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Gupta jiiiiiiii",
+  "intent": [
+   "greeting",
+   "chitchat"
+  ],
+  "items": [],
+  "id": "C02"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Mujhe to aapse baat Krna hai bss💝",
+  "intent": [
+   "chitchat"
+  ],
+  "items": [],
+  "relevant": false,
+  "id": "C03"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Gupta ji pe mera 5000 rupaye udhar hai",
+  "intent": [
+   "question",
+   "udhaar_request"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C04"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Bsdk mera udhari to add krr",
+  "intent": [
+   "abuse"
+  ],
+  "items": [],
+  "relevant": false,
+  "id": "C05"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Shuknivaar ko dunga",
+  "intent": [
+   "promise"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C06"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Upi de diya",
+  "intent": [
+   "payment_claim"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C07"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "en",
+  "text": "I'll pay via only fans",
+  "intent": [
+   "abuse"
+  ],
+  "items": [],
+  "relevant": false,
+  "id": "C08"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Nudes de diya",
+  "intent": [
+   "abuse"
+  ],
+  "items": [],
+  "relevant": false,
+  "id": "C09"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Vo nudes bhi accept krra",
+  "intent": [
+   "abuse"
+  ],
+  "items": [],
+  "relevant": false,
+  "id": "C10"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Kitna baaki hai",
+  "intent": [
+   "balance"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C11"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Nangu pangu photos de diye hai",
+  "intent": [
+   "abuse"
+  ],
+  "items": [],
+  "relevant": false,
+  "id": "C12"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Cash aur upi de diya hai aadha aadha",
+  "intent": [
+   "payment_claim"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C13"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Ye bhi dekho aur sahi karo",
+  "intent": [
+   "question"
+  ],
+  "items": [],
+  "id": "C14"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "en",
+  "text": "Old is gold",
+  "intent": [
+   "chitchat"
+  ],
+  "items": [],
+  "relevant": false,
+  "id": "C15"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Aap konse dukaan k baare mein puchre ho",
+  "intent": [
+   "question",
+   "chitchat"
+  ],
+  "items": [],
+  "id": "C16"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Nhi chahiye gupta kirana se kuch bhi mujhe",
+  "intent": [
+   "opt_out"
+  ],
+  "items": [],
+  "id": "C17"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Cash de diya",
+  "intent": [
+   "payment_claim"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C18"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Shukravar ko dunga",
+  "intent": [
+   "promise"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C19"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "mere ko pachaas vaala condom de do.",
+  "intent": [
+   "order"
+  ],
+  "items": [
+   "condom"
+  ],
+  "relevant": true,
+  "id": "C20"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "mere ko chaaval de do chaaval",
+  "intent": [
+   "order"
+  ],
+  "items": [
+   "chaaval|chawal|rice|chaval"
+  ],
+  "relevant": true,
+  "id": "C21"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "ek kilo chaaval, do kilo daal",
+  "intent": [
+   "order"
+  ],
+  "items": [
+   "chaaval|chawal|rice|chaval",
+   "daal|dal|lentil"
+  ],
+  "relevant": true,
+  "id": "C22"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "khaate men likho abhi paise naheen hai mere paas. main jab aaoonga tab doonga.",
+  "intent": [
+   "udhaar_request",
+   "promise"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C23"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "suna kya?",
+  "intent": [
+   "chitchat",
+   "question",
+   "greeting"
+  ],
+  "items": [],
+  "id": "C24"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Shampoo bhi tha yaar usako bhi add karo",
+  "intent": [
+   "add_to_order",
+   "order"
+  ],
+  "items": [
+   "shampoo"
+  ],
+  "relevant": true,
+  "id": "C25"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "entry anti dandruff shampoo add karo.",
+  "intent": [
+   "add_to_order",
+   "order"
+  ],
+  "items": [
+   "shampoo"
+  ],
+  "relevant": true,
+  "id": "C26"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Antidandruff shampoo add karo.",
+  "intent": [
+   "add_to_order",
+   "order"
+  ],
+  "items": [
+   "shampoo"
+  ],
+  "relevant": true,
+  "id": "C27"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Shampoo add karna.",
+  "intent": [
+   "add_to_order",
+   "order"
+  ],
+  "items": [
+   "shampoo"
+  ],
+  "relevant": true,
+  "id": "C28"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "shampoo bhi add karo, shampoo bhi add karo usamen",
+  "intent": [
+   "add_to_order",
+   "order"
+  ],
+  "items": [
+   "shampoo"
+  ],
+  "relevant": true,
+  "id": "C29"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "do shampoo ke pouch add karen.",
+  "intent": [
+   "add_to_order",
+   "order"
+  ],
+  "items": [
+   "shampoo"
+  ],
+  "relevant": true,
+  "id": "C30"
+ },
+ {
+  "role": "customer",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "mere ko is list men shampoo ki ek bottle bhi add karna hai.",
+  "intent": [
+   "add_to_order",
+   "order"
+  ],
+  "items": [
+   "shampoo"
+  ],
+  "relevant": true,
+  "id": "C31"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "mr",
+  "text": "मला दोन किलो तांदूळ आणि एक किलो साखर पाहिजे",
+  "intent": [
+   "order"
+  ],
+  "items": [
+   "chaaval|chawal|rice|tandul|chaval",
+   "cheeni|chini|sugar|sakhar"
+  ],
+  "relevant": true,
+  "id": "C32"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "mr",
+  "text": "माझा हिशोब पाठवा",
+  "intent": [
+   "balance"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C33"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "mr",
+  "text": "आज 500 रुपये रोख दिले",
+  "intent": [
+   "payment_claim"
+  ],
+  "items": [],
+  "relevant": true,
+  "amount": 500,
+  "id": "C34"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "mr",
+  "text": "मी शुक्रवारी पैसे देईन",
+  "intent": [
+   "promise"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C35"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "mr",
+  "text": "Mala ek Parle-G ani don Maggi pahije",
+  "intent": [
+   "order"
+  ],
+  "items": [
+   "parle",
+   "maggi"
+  ],
+  "relevant": true,
+  "id": "C36"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "mr",
+  "text": "तुम्ही खूप छान आहात 😊",
+  "intent": [
+   "chitchat",
+   "greeting"
+  ],
+  "items": [],
+  "relevant": false,
+  "id": "C37"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "hi",
+  "text": "मेरा कितना बाकी है?",
+  "intent": [
+   "balance"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C38"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "hi",
+  "text": "भैया दो किलो आटा और एक लीटर तेल भेज दो",
+  "intent": [
+   "order"
+  ],
+  "items": [
+   "aata|atta|ata|flour",
+   "tel|oil"
+  ],
+  "relevant": true,
+  "id": "C39"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "hi",
+  "text": "मैंने 300 रुपये यूपीआई कर दिए",
+  "intent": [
+   "payment_claim"
+  ],
+  "items": [],
+  "relevant": true,
+  "amount": 300,
+  "id": "C40"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "hi",
+  "text": "अगले सोमवार को पैसे दे दूंगा",
+  "intent": [
+   "promise"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C41"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "hi",
+  "text": "आज मौसम बहुत अच्छा है",
+  "intent": [
+   "chitchat"
+  ],
+  "items": [],
+  "relevant": false,
+  "id": "C42"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "hi",
+  "text": "मेरी एंट्री गलत लिखी है, मैंने सिर्फ एक दूध लिया था",
+  "intent": [
+   "question",
+   "confirm_no"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C43"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "en",
+  "text": "Please send 2 packets of milk and a loaf of bread",
+  "intent": [
+   "order"
+  ],
+  "items": [
+   "doodh|dudh|milk",
+   "bread"
+  ],
+  "relevant": true,
+  "id": "C44"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "en",
+  "text": "How much do I owe you?",
+  "intent": [
+   "balance"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C45"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "en",
+  "text": "I will pay you on Sunday",
+  "intent": [
+   "promise"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C46"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "en",
+  "text": "Paid 450 in cash yesterday",
+  "intent": [
+   "payment_claim"
+  ],
+  "items": [],
+  "relevant": true,
+  "amount": 450,
+  "id": "C47"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "en",
+  "text": "Do you have Surf Excel in stock?",
+  "intent": [
+   "question"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C48"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "en",
+  "text": "Happy Diwali to you and your family!",
+  "intent": [
+   "greeting",
+   "chitchat"
+  ],
+  "items": [],
+  "relevant": false,
+  "id": "C49"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "en",
+  "text": "Stop sending me messages",
+  "intent": [
+   "opt_out"
+  ],
+  "items": [],
+  "id": "C50"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "hinglish",
+  "text": "bhaiya 5 maggi aur ek colgate bhej dena",
+  "intent": [
+   "order"
+  ],
+  "items": [
+   "maggi",
+   "colgate"
+  ],
+  "relevant": true,
+  "id": "C51"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "hinglish",
+  "text": "ek aur Parle-G jod do",
+  "intent": [
+   "add_to_order",
+   "order"
+  ],
+  "items": [
+   "parle"
+  ],
+  "relevant": true,
+  "id": "C52"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "hinglish",
+  "text": "kal tak 200 de dunga",
+  "intent": [
+   "promise"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C53"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "hinglish",
+  "text": "kya aapke paas Amul butter hai?",
+  "intent": [
+   "question"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C54"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "hinglish",
+  "text": "Dettol sabun 2 aur Surf excel 1 kilo chahiye",
+  "intent": [
+   "order"
+  ],
+  "items": [
+   "dettol",
+   "surf"
+  ],
+  "relevant": true,
+  "id": "C55"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "hinglish",
+  "text": "hahaha bhai mast",
+  "intent": [
+   "chitchat"
+  ],
+  "items": [],
+  "relevant": false,
+  "id": "C56"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "hinglish",
+  "text": "aaj ka bill bhejo",
+  "intent": [
+   "balance"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C57"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "hinglish",
+  "text": "maine abhi gpay se 150 bheje",
+  "intent": [
+   "payment_claim"
+  ],
+  "items": [],
+  "relevant": true,
+  "amount": 150,
+  "id": "C58"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "ta",
+  "text": "எனக்கு இரண்டு கிலோ சர்க்கரை வேண்டும்",
+  "intent": [
+   "order"
+  ],
+  "items": [
+   "cheeni|chini|sugar|sakkarai|sarkarai"
+  ],
+  "relevant": true,
+  "id": "C59"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "bn",
+  "text": "আমার কত টাকা বাকি আছে?",
+  "intent": [
+   "balance"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C60"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "gu",
+  "text": "મેં 200 રૂપિયા રોકડા આપ્યા",
+  "intent": [
+   "payment_claim"
+  ],
+  "items": [],
+  "relevant": true,
+  "amount": 200,
+  "id": "C61"
+ },
+ {
+  "role": "customer",
+  "src": "synthetic",
+  "lang": "pa",
+  "text": "ਮੇਰਾ ਕਿੰਨਾ ਬਕਾਇਆ ਹੈ?",
+  "intent": [
+   "balance"
+  ],
+  "items": [],
+  "relevant": true,
+  "id": "C62"
+ },
+ {
+  "role": "owner",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Meena didi ka number 9822736057",
+  "intent": [
+   "set_phone"
+  ],
+  "items": [],
+  "id": "O63"
+ },
+ {
+  "role": "owner",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "kisko kitna dena hai",
+  "intent": [
+   "supplier",
+   "summary"
+  ],
+  "items": [],
+  "id": "O64"
+ },
+ {
+  "role": "owner",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Aaj ka hisab",
+  "intent": [
+   "summary"
+  ],
+  "items": [],
+  "id": "O65"
+ },
+ {
+  "role": "owner",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "sharma ji ne 400ka saman kiya",
+  "intent": [
+   "udhaar"
+  ],
+  "items": [],
+  "amount": 400,
+  "id": "O66"
+ },
+ {
+  "role": "owner",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "meena 220 diye",
+  "intent": [
+   "jama"
+  ],
+  "items": [],
+  "amount": 220,
+  "id": "O67"
+ },
+ {
+  "role": "owner",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "krish ne 200 ka saman liya",
+  "intent": [
+   "udhaar"
+  ],
+  "items": [],
+  "amount": 200,
+  "id": "O68"
+ },
+ {
+  "role": "owner",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "abhi yaad dila usko mandar ko",
+  "intent": [
+   "remind"
+  ],
+  "items": [],
+  "id": "O69"
+ },
+ {
+  "role": "owner",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "sharma ji ke 500 rupae udhaar likho.",
+  "intent": [
+   "udhaar"
+  ],
+  "items": [],
+  "amount": 500,
+  "id": "O70"
+ },
+ {
+  "role": "owner",
+  "src": "real",
+  "lang": "hinglish",
+  "text": "Krish ko hatao",
+  "intent": [
+   "remove_customer"
+  ],
+  "items": [],
+  "id": "O71"
+ },
+ {
+  "role": "owner",
+  "src": "real",
+  "lang": "en",
+  "text": "help",
+  "intent": [
+   "help"
+  ],
+  "items": [],
+  "id": "O72"
+ },
+ {
+  "role": "owner",
+  "src": "synthetic",
+  "lang": "hi",
+  "text": "पप्पू ने डेढ़ हज़ार जमा किए",
+  "intent": [
+   "jama"
+  ],
+  "items": [],
+  "amount": 1500,
+  "id": "O73"
+ },
+ {
+  "role": "owner",
+  "src": "synthetic",
+  "lang": "hi",
+  "text": "वर्मा जी का कितना बाकी है",
+  "intent": [
+   "balance"
+  ],
+  "items": [],
+  "id": "O74"
+ },
+ {
+  "role": "owner",
+  "src": "synthetic",
+  "lang": "mr",
+  "text": "मीना दीदींनी 300 रुपये जमा केले",
+  "intent": [
+   "jama"
+  ],
+  "items": [],
+  "amount": 300,
+  "id": "O75"
+ },
+ {
+  "role": "owner",
+  "src": "synthetic",
+  "lang": "mr",
+  "text": "पप्पूला उद्या आठवण करून द्या",
+  "intent": [
+   "remind"
+  ],
+  "items": [],
+  "id": "O76"
+ },
+ {
+  "role": "owner",
+  "src": "synthetic",
+  "lang": "en",
+  "text": "Iqbal paid 250 by UPI",
+  "intent": [
+   "jama"
+  ],
+  "items": [],
+  "amount": 250,
+  "id": "O77"
+ },
+ {
+  "role": "owner",
+  "src": "synthetic",
+  "lang": "en",
+  "text": "Remind everyone who owes money",
+  "intent": [
+   "remind_all"
+  ],
+  "items": [],
+  "id": "O78"
+ },
+ {
+  "role": "owner",
+  "src": "synthetic",
+  "lang": "hinglish",
+  "text": "Verma ji ki list: 1 kilo cheeni 45, ek sabun 40, doodh",
+  "intent": [
+   "list",
+   "udhaar"
+  ],
+  "items": [
+   "cheeni|chini|sugar",
+   "sabun|soap",
+   "doodh|dudh|milk"
+  ],
+  "id": "O79"
+ },
+ {
+  "role": "owner",
+  "src": "synthetic",
+  "lang": "hinglish",
+  "text": "Modern bakery ko order: bread 20 packet",
+  "intent": [
+   "wholesale"
+  ],
+  "items": [
+   "bread"
+  ],
+  "id": "O80"
+ },
+ {
+  "role": "owner",
+  "src": "synthetic",
+  "lang": "hinglish",
+  "text": "galti ho gayi last wala cancel karo",
+  "intent": [
+   "undo"
+  ],
+  "items": [],
+  "id": "O81"
+ },
+ {
+  "role": "owner",
+  "src": "synthetic",
+  "lang": "hinglish",
+  "text": "Agrawal traders se 5000 ka maal udhaar aaya",
+  "intent": [
+   "supplier"
+  ],
+  "items": [],
+  "amount": 5000,
+  "id": "O82"
+ },
+ {
+  "role": "owner",
+  "src": "synthetic",
+  "lang": "hinglish",
+  "text": "Sharma ji Friday ko denge",
+  "intent": [
+   "promise"
+  ],
+  "items": [],
+  "id": "O83"
+ },
+ {
+  "role": "owner",
+  "src": "synthetic",
+  "lang": "hinglish",
+  "text": "kya haal hai bhai",
+  "intent": [
+   "chitchat",
+   "help",
+   "unknown"
+  ],
+  "items": [],
+  "relevant": false,
+  "id": "O84"
+ },
+ {
+  "role": "owner",
+  "src": "synthetic",
+  "lang": "hinglish",
+  "text": "Raju ka naya khata kholo, number 9812345678",
+  "intent": [
+   "add_customer",
+   "set_phone"
+  ],
+  "items": [],
+  "id": "O85"
+ }
+]

@@ -1,0 +1,6 @@
+data
+dist
+test
+*.zip
+node_modules
+.git
