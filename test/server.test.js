@@ -73,7 +73,7 @@ test('page is served with the shop config; health check answers', async () => {
   } finally { s.close(); }
 });
 
-test('full loop over HTTP: reminder, cash claim, evening confirm, Galla Mic, UPI', async () => {
+test('full loop over HTTP: reminder, cash claim, evening confirm, UPI', async () => {
   const s = createServer({ env: { SHOP: 'gupta', DATA_DIR: tmpDir() }, today: () => TODAY });
   const u = await listen(s);
   try {
@@ -87,9 +87,8 @@ test('full loop over HTTP: reminder, cash claim, evening confirm, Galla Mic, UPI
     r = await act(u, 'confirm', { claimId: claim.id, ok: true });
     assert.equal(r.body.dashboard.pendingCount, 0);
     assert.ok(!r.body.state.customers.find((c) => c.id === 'C001').dueDate || r.body.state.txns.some((t) => t.custId === 'C001' && t.type === 'payment' && t.date === r.body.state.today));
-    r = await act(u, 'galla', { text: 'Aaj garmi bahut hai' });
-    assert.equal(r.body.result.action, 'ignored');
-    assert.ok(!JSON.stringify(r.body.state).includes('garmi'), 'chatter is not stored');
+    r = await act(u, 'galla', { text: 'Pappu 200 jama' });
+    assert.equal(r.status, 400, 'the Galla Mic action is gone');
     r = await act(u, 'upi', { text: 'Rs 700.00 received from MEENA KUMARI via Google Pay. UPI Ref 551200987654' });
     assert.ok(r.body.freshTxn);
     r = await act(u, 'reset');
@@ -194,40 +193,6 @@ test('the Dockerfile builds the page and serves port 8000', () => {
   for (const f of ['core', 'web', 'vendor', 'server', 'build.js']) assert.ok(df.includes('COPY ' + f), f);
 });
 
-test('copy photo over HTTP: the server asks its own AI, proposes lines, writes only after ✅; no AI says so', async () => {
-  const reading = { format: 'daily_list', page_date: TODAY, language: 'hindi', customer: '', lines: [{ name: 'Sharma ji', amount: 240, type: 'credit', date: '', items: 'atta', raw: 'शर्मा 240', sure: true }] };
-  const llm = fakeLlm(reading);
-  const lu = await listen(llm);
-  const s = createServer({ env: { SHOP: 'gupta', DATA_DIR: tmpDir(), AGENT37_LLM_PROXY_URL: lu }, today: () => TODAY });
-  const u = await listen(s);
-  const img = 'data:image/jpeg;base64,' + Buffer.from('fake jpeg bytes').toString('base64');
-  const photo = (body) => fetch(u + '/api/photo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  try {
-    const n = s.getState().txns.length;
-    let r = await photo({ image: img, mode: 'daily' });
-    assert.equal(r.status, 200);
-    const j = await r.json();
-    const sent = llm.seen[0].body.messages[0].content;
-    assert.equal(sent[1].type, 'image_url'); assert.equal(sent[1].image_url.url, img);
-    assert.match(sent[0].text, /handwritten udhaar/);
-    assert.equal(j.state.txns.length, n, 'nothing written yet');
-    const rv = j.state.copyReviews[0];
-    assert.equal(rv.lines[0].status, 'new');
-    assert.ok(!JSON.stringify(j.state).includes('fake jpeg'), 'the photo is not stored');
-    r = await act(u, 'copyConfirmAll', { reviewId: rv.id });
-    assert.equal(r.body.state.txns.length, n + 1);
-    // a reading pushed by the browser is refused
-    assert.equal((await act(u, 'copyRead', { reading })).status, 400);
-    assert.equal((await photo({ image: 'data:text/html;base64,PGI+', mode: 'daily' })).status, 400);
-  } finally { s.close(); llm.close(); }
-  const s2 = createServer({ env: { SHOP: 'gupta', DATA_DIR: tmpDir() }, today: () => TODAY });
-  const u2 = await listen(s2);
-  try {
-    const r = await fetch(u2 + '/api/photo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ image: img }) });
-    assert.equal(r.status, 409); assert.deepEqual(await r.json(), { error: 'no_ai' });
-  } finally { s2.close(); }
-});
-
 test('loadEnvFile fills unset variables from a KEY=value file and never overrides real env', () => {
   const file = path.join(tmpDir(), 'udhaar.env');
   fs.writeFileSync(file, '# keys\n\nTWILIO_ACCOUNT_SID=AC123\nexport OWNER_WHATSAPP="+91 98765 00000"\nSTT_URL=\'https://stt.example\'\nPORT=9999\nnot a line\nEMPTY_ONE=\n');
@@ -269,4 +234,14 @@ test('a live shop (REAL_CLOCK=1): a public visitor cannot reset the khata or mov
     assert.equal((await post('reset', { ...pub, 'x-admin-key': 'owner-secret' })).status, 200);
     assert.equal((await post('reset', {})).status, 200, 'the instance itself can always reset');
   } finally { srv.close(); }
+});
+
+test('copy photo reading is gone: no /api/photo route', async () => {
+  const s = createServer({ env: { SHOP: 'gupta', DATA_DIR: tmpDir() }, today: () => TODAY });
+  const u = await listen(s);
+  try {
+    const r = await fetch(u + '/api/photo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(r.status, 404);
+    for (const a of ['copyRead', 'copyDecide', 'copyConfirmAll']) assert.equal((await act(u, a, {})).status, 400, a);
+  } finally { s.close(); }
 });

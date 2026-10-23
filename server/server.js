@@ -14,7 +14,6 @@
 //                          with LLM_BASE_URL set, LLM_MODEL is that endpoint's model and the router is the fallback: see server/llm.js
 //   REAL_CLOCK             1 = the agent's own scheduler: each new calendar day it runs the morning reminders,
 //                          and at EVENING_HOUR (default 21) it sends the evening summary and cash batch
-//   VISION_MODEL           optional model id for reading copy photos (must accept images); unset = LLM_MODEL or router default
 //   SHOP_CITY              optional: the shop's town for the AI's context (e.g. Nagpur); kept in the saved khata
 //   OTHER_SHOPS            optional "Name|https://url,Name|https://url" for the shop switcher
 //   TWILIO_*, OWNER_WHATSAPP, PUBLIC_URL, STT_*   real WhatsApp and voice notes: see server/whatsapp.js
@@ -22,7 +21,6 @@
 //                          an ordinary number): see server/whatsapp.js and server/wa-web.js
 //   LINK_KEY               the secret for GET /link?key=..., where the shop's WhatsApp number is linked by QR (any provider)
 //   ACT_LIMIT_PER_MIN      default 30: /api/act calls per minute per visitor IP (the public demo URL is open to anyone)
-//   PHOTO_LIMIT_PER_10MIN  default 5: /api/photo calls per 10 minutes per visitor IP (each one is an AI vision call)
 //   ADMIN_KEY              optional: on a live shop (REAL_CLOCK=1) "reset", "next day" and "close day" from the public page
 //                          need the header x-admin-key with this value; calls from the instance itself always work
 //   WA_REPLY_TWIML         1 = answer the WhatsApp sender inside the webhook reply (TwiML) instead of the Messages API
@@ -44,7 +42,6 @@ const { createFileStore, openStore } = require('./store.js');
 const ROOT = path.join(__dirname, '..');
 const MAX_BODY = 16 * 1024;
 const MAX_META_BODY = 256 * 1024; // a Cloud API webhook can batch several messages
-const MAX_PHOTO = 4 * 1024 * 1024; // a copy photo, already shrunk by the page
 
 function localToday() {
   const d = new Date();
@@ -62,8 +59,8 @@ function createServer(opts) {
   opts = opts || {};
   const env = opts.env || process.env;
   const shopId = C.DEMO_SHOPS[env.SHOP] ? env.SHOP : 'gupta';
+  C.FEATURES.vouch = env.FEATURE_VOUCH === '1'; // naye log (vouching) is off for now
   const dataDir = path.resolve(env.DATA_DIR || path.join(ROOT, 'data'));
-  const timeoutMs = +env.LLM_TIMEOUT_MS || 8000;
   const others = parseOtherShops(env.OTHER_SHOPS);
   const fetchImpl = opts.fetch || globalThis.fetch;
   const today = opts.today || localToday;
@@ -99,17 +96,6 @@ function createServer(opts) {
     llm: llm.enabled, model: llm.describe(),
     get lastError() { return llm.stats.lastError; }, get llmCalls() { return llm.stats.calls; }, get llmFallbacks() { return llm.stats.fallbacks; }
   };
-
-  // Read a photo of the paper copy with a model that sees images. The reading only proposes lines; the owner confirms each.
-  async function readPhoto(dataUrl, mode) {
-    if (!llm.enabled) throw Object.assign(new Error('no_ai'), { code: 409 });
-    if (!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(dataUrl)) throw Object.assign(new Error('send a JPEG, PNG or WebP image'), { code: 400 });
-    try {
-      const r = await llm.chatJson([{ role: 'user', content: [{ type: 'text', text: C.copyReadRequest(state, mode) }, { type: 'image_url', image_url: { url: dataUrl } }] }],
-        { vision: true, json: false, maxTokens: 3000, timeoutMs: Math.max(timeoutMs, 45000) });
-      return r.value;
-    } catch (e) { throw Object.assign(new Error('read_failed'), { code: 502 }); }
-  }
 
   function snapshot(extra) {
     return Object.assign({
@@ -151,7 +137,6 @@ function createServer(opts) {
     if (C.ACTIONS.indexOf(action) < 0) throw Object.assign(new Error('unknown action'), { code: 400 });
     const a = Object.assign({}, args);
     delete a.intent; delete a.now; // never trust an intent (or a clock) from the browser
-    if (action === 'copyRead') throw Object.assign(new Error('send the photo to /api/photo'), { code: 400 }); // readings come from this server's AI only
     const heard = typeof a.heard === 'string' && a.heard ? a.heard.slice(0, 500) : null; // a voice note's own words, in its own script
     delete a.heard;
     if (action === 'owner' && !C.looksLikeUpiSms(String(a.text || ''))) a.intent = await brain.understandOwner(String(a.text || '').slice(0, 500), { heard });
@@ -166,7 +151,7 @@ function createServer(opts) {
 
   // A small per-visitor rate limit for the routes that change the khata or spend AI calls. The page itself stays open
   // (it is a public demo); this only stops one visitor from hammering the shop. Local calls (no proxy) are not limited.
-  const limits = { '/api/act': [+env.ACT_LIMIT_PER_MIN || 30, 60e3], '/api/photo': [+env.PHOTO_LIMIT_PER_10MIN || 5, 600e3] };
+  const limits = { '/api/act': [+env.ACT_LIMIT_PER_MIN || 30, 60e3] };
   const hits = new Map();
   const LOCKED = new Set(['reset', 'nextDay', 'closeDay']);
   const local = (req) => !req.headers['x-forwarded-for'] && /^(::1|127\.|::ffff:127\.)/.test(req.socket.remoteAddress || '');
@@ -275,17 +260,6 @@ function createServer(opts) {
           if (state === before) { wa.deliver(state, from, null, { skipOwner: true }); save(); }
           return r;
         });
-        return send(res, 200, out);
-      }
-      if (req.method === 'POST' && url.pathname === '/api/photo') {
-        if (!/application\/json/.test(req.headers['content-type'] || '')) return send(res, 415, { error: 'send JSON' });
-        if (+req.headers['content-length'] > MAX_PHOTO) { res.setHeader('connection', 'close'); return send(res, 413, { error: 'photo too large' }); }
-        if (!llm.enabled) return send(res, 409, { error: 'no_ai' });
-        let body;
-        try { body = JSON.parse(await readBody(req, MAX_PHOTO) || '{}'); } catch (e) { return send(res, e.code === 413 ? 413 : 400, { error: e.code === 413 ? 'photo too large' : 'bad JSON' }); }
-        const mode = body.mode === 'setup' ? 'setup' : 'daily';
-        const reading = await readPhoto(String(body.image || ''), mode); // the photo itself is never saved
-        const out = await serial(() => { const r = C.runAction(state, 'copyRead', { reading, mode }); save(); return snapshot({ freshTxn: null, result: r.result }); });
         return send(res, 200, out);
       }
       return send(res, 404, { error: 'not found' });

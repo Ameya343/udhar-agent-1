@@ -58,9 +58,9 @@ const TO_CUSTOMER = { order: 'order', add_to_order: 'order', balance: 'balance',
 const TO_OWNER = { udhaar: 'credit', jama: 'payment', list: 'credit', list_edit: 'unknown', balance: 'query', summary: 'summary', remind: 'remind', remind_all: 'remind_all', undo: 'undo', set_phone: 'set_phone', add_customer: 'set_phone', remove_customer: 'remove_customer', restore_customer: 'restore_customer', promise: 'promise', supplier: 'supplier', week: 'week', wholesale: 'wholesale', help: 'help', chitchat: 'help', unknown: 'unknown' };
 
 // ------------------------------------------------------------------ prompts
-const KEYS = ['lang', 'english', 'relevant', 'reason', 'intent', 'items', 'amount', 'person', 'phone', 'due_date', 'method', 'canon', 'confidence', 'ask'];
+const KEYS = ['lang', 'english', 'relevant', 'reason', 'intent', 'items', 'amount', 'person', 'entries', 'phone', 'due_date', 'method', 'canon', 'confidence', 'ask'];
 const FORMAT = 'Answer with ONE JSON object and nothing else, with exactly these keys:\n' +
-  '{"lang": "", "english": "", "relevant": true, "reason": "", "intent": "", "items": [], "amount": null, "person": "", "phone": "", "due_date": "", "method": "", "canon": "", "confidence": 0.9, "ask": ""}\n' +
+  '{"lang": "", "english": "", "relevant": true, "reason": "", "intent": "", "items": [], "amount": null, "person": "", "entries": [], "phone": "", "due_date": "", "method": "", "canon": "", "confidence": 0.9, "ask": ""}\n' +
   'lang: the language of the message: hinglish (Hindi in Latin letters), hi (Hindi in Devanagari), mr (Marathi, either script), en (English), or another ISO code (ta, te, bn, gu, kn, ml, pa, ur).\n' +
   'english: the message translated to plain English.\n' +
   'relevant: true if the message is about the shop (buying, udhaar, paying, the hisaab, a complaint, a real question); false for jokes, flirting, spam, abuse, random text. reason: a few words why.\n' +
@@ -68,7 +68,8 @@ const FORMAT = 'Answer with ONE JSON object and nothing else, with exactly these
   '(aata, cheeni, chaaval, daal, tel, doodh, sabun, shampoo, Parle-G, Maggi), brand and variant words kept (e.g. "anti dandruff shampoo"). ' +
   'qty: a number only if said. unit: kg, g, l, ml, pkt, pc, bottle, dozen or "". price: rupees only if the message says the price of that item, else null.\n' +
   'amount: rupees as a number only if the message states money, else null. Never guess an amount.\n' +
-  'person: the person named (with ji/bhai/didi if said), else "". phone: a 10-digit number if given, else "". due_date: YYYY-MM-DD for a promised payment day, else "". ' +
+  'person: the person named (with ji/bhai/didi if said), else "". entries: only when the message has amounts for TWO OR MORE different people, one ' +
+  '{"person": "", "amount": null, "type": "udhaar"} (type udhaar or jama) per person, else []. A person\'s name is never an item. phone: a 10-digit number if given, else "". due_date: YYYY-MM-DD for a promised payment day, else "". ' +
   'method: "cash" or "upi" when a payment is mentioned, else "".\n' +
   'confidence: 0 to 1, how sure you are about intent. ask: "" when clear; else ONE short question back, in the same language as the message.';
 
@@ -78,7 +79,7 @@ function nextWeekday(today, dow) {
   const add = ((dow - d.getUTCDay()) + 7) % 7 || 7;
   return new Date(d.getTime() + add * 864e5).toISOString().slice(0, 10);
 }
-const shot = (o) => JSON.stringify(Object.assign({ lang: 'hinglish', english: '', relevant: true, reason: '', intent: '', items: [], amount: null, person: '', phone: '', due_date: '', method: '', canon: '', confidence: 0.9, ask: '' }, o));
+const shot = (o) => JSON.stringify(Object.assign({ lang: 'hinglish', english: '', relevant: true, reason: '', intent: '', items: [], amount: null, person: '', entries: [], phone: '', due_date: '', method: '', canon: '', confidence: 0.9, ask: '' }, o));
 const it = (name, qty, unit, price) => ({ name, qty: qty == null ? null : qty, unit: unit || '', price: price == null ? null : price });
 
 /** Real messages from the shop's WhatsApp (18 Oct) plus Marathi, Hindi, English and junk. */
@@ -117,6 +118,8 @@ function ownerShots(today) {
     ['krish wali list se doodh nikal do', { english: "Remove milk from Krish's list", reason: 'changes a list already written', intent: 'list_edit', person: 'Krish', items: [it('doodh')], canon: 'Krish ki list se doodh hata do' }],
     ['Agrawal traders ko order: 10 kilo cheeni, 5 kilo aata', { english: 'Order to Agrawal Traders: 10 kg sugar, 5 kg flour', reason: 'stock order', intent: 'wholesale', person: 'Agrawal Traders', items: [it('cheeni', 10, 'kg'), it('aata', 5, 'kg')], canon: 'Agrawal Traders ko order: 10 kilo cheeni, 5 kilo aata' }],
     ['Ramesh ka naya khata kholo, number 9876543210', { english: 'Open a new khata for Ramesh, number 9876543210', reason: 'new customer', intent: 'add_customer', person: 'Ramesh', phone: '9876543210', canon: 'Ramesh ka number 9876543210' }],
+    ['verma ka 250 aur pappu ka 120 likh do', { english: 'Write 250 for Verma and 120 for Pappu', reason: 'two people, two udhaar entries', intent: 'udhaar', entries: [{ person: 'Verma ji', amount: 250, type: 'udhaar' }, { person: 'Pappu', amount: 120, type: 'udhaar' }], canon: '' }],
+    ['galti ho gayi sharma ji ka 340 nahi 430 tha', { english: 'Mistake: Sharma ji\'s entry was 430, not 340', reason: 'fixes the amount of Sharma ji\'s own entry', intent: 'undo', person: 'Sharma ji', amount: 430, canon: '' }],
     ['Pappu ko hatao', { english: 'Remove Pappu', reason: 'remove customer', intent: 'remove_customer', person: 'Pappu', canon: 'Pappu ko hatao' }],
     ['haan wo... uska... kal wala', { english: 'yes that... his... yesterday one', relevant: true, reason: 'too unclear', intent: 'unknown', confidence: 0.2, ask: 'Kiska aur kitne ka hisaab likhun?' }]
   ];
@@ -156,7 +159,7 @@ function customerMessages(state, c, text, ctx) {
     'payment_claim = says they ALREADY paid money ("cash de diya", "UPI kar diya", "paid 200"). Not money (photos, insults, jokes) is never payment_claim. "Kal dunga" is promise;\n' +
     'promise = will pay later or names a day; udhaar_request = asks to write their purchase on credit / in the khata;\n' +
     'confirm_yes / confirm_no = says an entry, bill or question is right / wrong (haan, ho, yes / galat, nahi, no);\n' +
-    'vouch = vouches for a new person with their phone number; greeting = only a greeting;\n' +
+    (C.FEATURES.vouch ? 'vouch = vouches for a new person with their phone number; ' : '') + 'greeting = only a greeting;\n' +
     'balance_dispute = says their balance or an entry is wrong, or claims a different total ("mera udhaar bas 40 hai", "itna nahi liya", "maine 162 ka nahi liya"); amount = the amount THEY claim;\n' +
     'correction = corrects a detail of an earlier order or entry ("daal nahi chaaval tha", "2 nahi 1 kilo", "daal ka de diya tha, aata baaki");\n' +
     'question = any other real message that needs the shopkeeper (complaint, availability, delivery, a question);\n' +
@@ -179,7 +182,7 @@ function ownerMessages(state, text) {
     'intent, exactly one of:\n' +
     'udhaar = someone took goods or money on credit; jama = someone paid the shop back; list = an item-by-item list for one person (items with prices as said); list_edit = change a list ALREADY written for one person (add / remove an item, fix a price, or replace it);\n' +
     'balance = one person\'s baaki; summary = the overall hisaab (aaj ka hisaab, kaun kaun baaki); remind = remind one person; remind_all = remind everyone who owes;\n' +
-    'undo = cancel the last entry; set_phone = save a person\'s number; add_customer = open a new khata; remove_customer / restore_customer = "<name> ko hatao" / "<name> ko wapas lao";\n' +
+    'undo = cancel or fix an entry (person = whose entry; a fix like "340 nahi 430 tha" is undo with that person, never another person\'s entry); set_phone = save a person\'s number; add_customer = open a new khata; remove_customer / restore_customer = "<name> ko hatao" / "<name> ko wapas lao";\n' +
     'promise = a person will pay on a day (no new goods); supplier = the SHOP\'s own udhaar with a wholesaler or trader (maal udhaar, paid the trader, kisko kitna dena hai); week = this week\'s hisaab;\n' +
     'wholesale = ordering stock for the shop from a wholesaler, a wholesaler\'s number, who supplies what, "maal aa gaya", "wholesaler list";\n' +
     'help = asks what you can do; chitchat = greeting or small talk; unknown = anything else or too garbled.\n' +
@@ -206,6 +209,11 @@ function cleanItems(v) {
   }
   return out;
 }
+function cleanEntries(v) {
+  if (!Array.isArray(v)) return [];
+  return v.slice(0, 10).map((e) => e && typeof e === 'object' ? { person: str(e.person || e.name || '', 60), amount: num(e.amount), type: /jama|payment|paid/i.test(str(e.type, 12)) ? 'jama' : 'udhaar' } : null)
+    .filter((e) => e && e.person && e.amount);
+}
 /**
  * The model's JSON, checked against the schema. Throws (so the next provider, then the rules, answer) when the
  * intent is not one this role allows. Missing optional keys get safe empty values.
@@ -228,13 +236,14 @@ function normalize(j, role) {
   return {
     lang: normLang(j.lang || j.language), english: str(j.english, 400), relevant, reason: str(j.reason, 120), intent,
     items: cleanItems(j.items), amount: num(j.amount), person, phone, dueDate: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : '', method,
-    canon: str(j.canon, 300), confidence: conf, ask: str(j.ask, 160)
+    canon: str(j.canon, 300), confidence: conf, ask: str(j.ask, 160), entries: cleanEntries(j.entries)
   };
 }
 
 // ------------------------------------------------------------------ to the khata's intents
 /** A customer's understanding as handleCustomerMessage's intent (safety rules applied in agent-core). */
 function toCustomerIntent(u, text) {
+  if (u.intent === 'vouch' && !C.FEATURES.vouch) u = Object.assign({}, u, { intent: 'question' });
   const ci = C.customerIntentFromLlm({ intent: TO_CUSTOMER[u.intent], method: u.method, amount: u.amount || 0 }, text);
   if (!ci) return null;
   // a payment needs payment words in the message itself; in a script the rules cannot read (Gujarati, Tamil, ...)

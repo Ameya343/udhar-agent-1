@@ -1,6 +1,6 @@
 # Udhaar Agent
 
-An AI munshi for a kirana shop. The shopkeeper speaks a Hindi or Hinglish voice note ("Sharma ji ne 340 ka saaman liya, kal denge") and the agent writes it into the khata. **Do-taraf khata:** every new entry goes to the customer's WhatsApp with **Haan, sahi hai** / **Galat hai**, so both sides agree on the record (✓ in the owner's khata), and a "galat hai" lands in the owner's evening ✅/❌ batch. The agent sends reminders that get firmer as the due ages, and clears the due when the customer pays by cash or UPI. The Galla Mic writes the khata from the shopkeeper's normal talk at the counter. Each shop has its own agent with its own khata, and a dashboard shows the total baaki, who is late, and the collection rate. The khata also gives each customer a credit score, which a lender can see only if the customer says yes on their own phone. Reading a photo of the paper copy is kept as a **future / experimental** feature.
+An AI munshi for a kirana shop. The shopkeeper speaks a Hindi or Hinglish voice note ("Sharma ji ne 340 ka saaman liya, kal denge") and the agent writes it into the khata. **Do-taraf khata:** every new entry goes to the customer's WhatsApp with **Haan, sahi hai** / **Galat hai**, so both sides agree on the record (✓ in the owner's khata), and a "galat hai" lands in the owner's evening ✅/❌ batch. The agent sends reminders that get firmer as the due ages, and clears the due when the customer pays by cash or UPI. Each shop has its own agent with its own khata, and a dashboard shows the total baaki, who is late, and the collection rate. The khata also gives each customer a credit score, which a lender can see only if the customer says yes on their own phone.
 
 Everything after the voice note is simulated: no real WhatsApp messages are sent and no real UPI money moves.
 
@@ -9,10 +9,9 @@ Everything after the voice note is simulated: no real WhatsApp messages are sent
 1. Open `dist/udhaar-agent-standalone.html` in **Google Chrome**. Double-clicking the file works.
 2. Allow the microphone when Chrome asks.
 3. **Voice note:** hold the green mic button in the shopkeeper's phone, speak in Hindi or Hinglish, then release.
-4. **Galla Mic:** click **Mic chalu karein** in the Galla Mic card and talk normally. It only acts on lines with *jama, udhaar, baaki* or *likh lo*.
-5. **Two shops:** switch between *Gupta Kirana Store* and *Balaji Dairy & General* at the top. Each has its own customers, khata and dashboard.
+4. **Two shops:** switch between *Gupta Kirana Store* and *Balaji Dairy & General* at the top. Each has its own customers, khata and dashboard.
 
-No internet is needed except for Chrome's speech recognition (Google's servers do the speech-to-text) and the fonts. Other browsers can't do the voice parts; use the sample voice-note chips and the counter-conversation buttons instead.
+No internet is needed except for Chrome's speech recognition (Google's servers do the speech-to-text) and the fonts. Other browsers can't do the voice parts; use the sample voice-note chips instead.
 
 Demo flow (the 2-minute video follows it shot by shot in `demo-video-script.md`): **Demo dobara shuru** → the sample "Sharma ji ne 340 ka saaman liya, kal denge" → **Agle din ➜** → on Sharma ji's phone, tap **💵 Cash de diya** or **UPI se dein** → for cash, **Dukaan band 🌙**, then ✅ → scroll to **Dukaan ka haal** to see the numbers move → in the **Credit score** card, **Lender ne record maanga (demo)**, then **Haan, share karein** on the customer's phone.
 
@@ -67,44 +66,15 @@ The owner reads out, or types, what one customer is taking, often with the mic o
 - If Krish has no number, the owner sees "Krish ka number nahi hai, sirf khate mein likha". If the list can't be delivered, the owner is told why.
 - If Krish replies "galat", it goes into the owner's ✅/❌ dispute check, like any entry.
 
-## Copy photo (future / experimental)
-
-Not the owner's first action: voice and text are. The 📷 button stays for trying it out. Reading accuracy on real handwritten copies is untested.
-
-
-Two uses, one pipeline:
-
-- **First day (setup):** the owner photographs each page of the old copy. The agent reads what each customer owes now and proposes opening balances. One **Sab sahi ✅** fills the khata, with no typing.
-- **Every evening (daily page):** if the shop keeps a date-wise list, the owner photographs today's page. The agent proposes today's entries.
-
-How it works:
-
-1. An AI that can see images reads the photo into lines: name, amount, and udhaar, jama or total baaki. Hindi, Marathi, English, Devanagari or Latin script are all accepted. Unclear lines are marked "⚠ saaf nahi padha".
-2. Each line is checked against the khata. An entry already there shows as "pehle se khate mein ✓" and is never added twice; matching is one to one, so two identical lines need two identical entries. For a total baaki, only the difference from the khata is proposed.
-3. Nothing is written until the owner taps ✅ on a line or **Sab sahi ✅**. ✏️ changes the customer, amount or type; ❌ skips the line. A name that fits two customers waits until the owner picks one.
-4. After ✅, reminders, cash claims and the dashboard carry on as before.
-
-The photo itself is never stored, only the confirmed entries.
-
-Where it runs:
-- **Demo link:** reading uses the page's AI with image input, so the viewer is asked once to allow sending images.
-- **Agent37 server:** reading uses `POST /api/photo` with the router's model. Set `VISION_MODEL` if the default model can't see images.
-- **Standalone file and GitHub Pages:** there is no AI, so the page says so and reads nothing. It never guesses.
-
-The **Purani copy ka page** and **Aaj ka page** samples draw a handwritten-style page in the browser and send that image to the AI. Nothing is pre-filled.
-
-Real accuracy on handwritten copies is not yet measured. It needs real pages.
-
 ## What is real and what is simulated
 
 | Real (running code) | Simulated in the demo |
 |---|---|
 | Customer Haan / Galat on each entry and monthly statement, ✓ in the khata, galat into the evening batch |  |
-| Copy photo to khata, experimental (reading needs an AI; dedupe and ✅ are plain code) |  |
 | Voice or text to khata (Hinglish and Devanagari), with the LLM or the offline rules | WhatsApp on the demo page: messages show in the on-screen phones (the shop server sends real ones through Twilio, see below) |
 | Reminder ladder on the due date, +3 days and +7 days | UPI: the pay sheet and bank SMS are generated; no money moves |
 | Matching UPI SMS to customers; cash claims with the evening ✅/❌ batch | The lender (Saathi Finance) and the data share |
-| Galla Mic: trigger words, drops chit-chat, cross-checks "N baaki" | 75 days of past khata for each demo shop, sized like a typical Nagpur general store: 24-25 customers on udhaar, up to about ₹4,000 each |
+| | 75 days of past khata for each demo shop, sized like a typical Nagpur general store: 24-25 customers on udhaar, up to about ₹4,000 each |
 | Dashboard, credit score, consent rules | |
 
 Live speech-to-text on the demo page uses Chrome's speech recognition, which sends audio to Google's servers. WhatsApp voice notes go to our own Whisper server instead. The agent stores no audio.
@@ -217,8 +187,7 @@ Open http://localhost:8000. `npm ci --omit=peer` is needed only for `WA_PROVIDER
 | Variable | Meaning |
 |---|---|
 | `PORT` | Port to listen on. Default `8000`. |
-| `SHOP` | Demo shop to seed: `gupta`, `balaji`, or `nayi` (an empty khata, for photo setup). Default `gupta`. |
-| `VISION_MODEL` | Optional model id for reading copy photos; it must accept images. Unset means `LLM_MODEL` or the router's default. |
+| `SHOP` | Demo shop to seed: `gupta`, `balaji`, or `nayi` (an empty khata). Default `gupta`. |
 | `DATA_DIR` | Folder for the khata file (`<shop>.json`). Default `./data`. |
 | `AGENT37_LLM_PROXY_URL` | OpenAI-compatible LLM router. Agent37 sets this on every instance. If it is unset, the offline rule parser does all the understanding. |
 | `AGENT37_MANAGED_TOKEN` | Bearer token for that router. Agent37 sets it and renews it on restart; the server reads it on every call. |
@@ -236,7 +205,7 @@ Open http://localhost:8000. `npm ci --omit=peer` is needed only for `WA_PROVIDER
 
 When the LLM is slow, down, or replies with something that isn't a valid ledger action, the server uses the offline Hinglish rules for that message and the page shows "offline rules". An intent sent by the browser is ignored: the server decides what the words mean.
 
-Endpoints: `GET /` (the page), `GET /healthz`, `GET /api/state`, `POST /api/act` with `{"action": "...", "args": {...}}`. Actions: `owner`, `upi`, `customer`, `confirm`, `galla`, `closeDay`, `nextDay`, `consentRequest`, `consentAnswer`, `consentRevoke`, `statements`, `customerCheck`, `copyDecide`, `copyConfirmAll`, `reset`. `POST /api/photo` with `{"image": "data:image/jpeg;base64,...", "mode": "daily" | "setup"}` reads a copy photo (409 `no_ai` when the server has no LLM). A reading sent by the browser to `/api/act` is refused.
+Endpoints: `GET /` (the page), `GET /healthz`, `GET /api/state`, `POST /api/act` with `{"action": "...", "args": {...}}`. Actions: `owner`, `upi`, `customer`, `confirm`, `closeDay`, `nextDay`, `consentRequest`, `consentAnswer`, `consentRevoke`, `statements`, `customerCheck`, `reset`.
 
 ## Deploy on Agent37 (one sandbox per shop)
 
@@ -326,7 +295,7 @@ git push -u origin main
 
 **What the live mic needs**
 
-The Galla Mic and voice notes use Chrome's speech recognition, which needs the page on `https://`. Agent37 instance URLs are `https://`, so the live mic works there. Speech-to-text runs on Google's servers; the agent keeps only the ledger lines, never audio.
+Demo-page voice notes use Chrome's speech recognition, which needs the page on `https://`. Agent37 instance URLs are `https://`, so the live mic works there. Speech-to-text runs on Google's servers; the agent keeps only the ledger lines, never audio.
 
 ## Build
 
@@ -351,7 +320,7 @@ npm test
 
 There are 80 tests (74 before the linked-device transport, 67 before the Meta transport; the per-group counts below predate some later additions):
 
-- **Core (33):** counter bill (items from orders to the helper, the spoken total wins and a gap is flagged, number words, the helper never becomes the customer, no name asks whose khata, dictated entries aren't mistaken for counter talk); bill with rates (spoken lines, the customer's list, rate memory with grams, half litres and counts, a stated total wins, a new rate replaces the old one, an unknown rate is asked for, Devanagari); do-taraf khata (Haan sets ✓, no reply in 24 hours counts as accepted but galat still works, answering twice or as someone else does nothing, who is not asked, Galat into the batch then ✅ keeps / ❌ removes with no score penalty, monthly statement on the 1st and by button); copy photo (daily page, one page per customer, first-day opening balances: dedupe against the khata, nothing written before ✅, edit, skip, ambiguous names, the same photo twice); parsing Hinglish and Devanagari (names, amounts, number words, dates, items), the ledger, the reminder ladder, UPI matching, cash claims and confirmation, the Galla Mic, two separate shops, the dashboard numbers, the credit score (cash never penalized, disputes cost points), and consent (nothing shared without yes, revoke, expiry, no number).
+- **Core (33):** counter bill (items from orders to the helper, the spoken total wins and a gap is flagged, number words, the helper never becomes the customer, no name asks whose khata, dictated entries aren't mistaken for counter talk); bill with rates (spoken lines, the customer's list, rate memory with grams, half litres and counts, a stated total wins, a new rate replaces the old one, an unknown rate is asked for, Devanagari); do-taraf khata (Haan sets ✓, no reply in 24 hours counts as accepted but galat still works, answering twice or as someone else does nothing, who is not asked, Galat into the batch then ✅ keeps / ❌ removes with no score penalty, monthly statement on the 1st and by button); parsing Hinglish and Devanagari (names, amounts, number words, dates, items), the ledger, the reminder ladder, UPI matching, cash claims and confirmation, two separate shops, the dashboard numbers, the credit score (cash never penalized, disputes cost points), and consent (nothing shared without yes, revoke, expiry, no number).
 - **Server (10):**
   - each shop keeps its own khata file and it survives a restart
   - the page is served with the shop config
@@ -360,7 +329,6 @@ There are 80 tests (74 before the linked-device transport, 67 before the Meta tr
   - the LLM router is called with the right token
   - rules take over when the LLM fails, stalls or talks nonsense
   - consent over HTTP
-  - copy photo over HTTP (the server's own AI reads it, the photo isn't stored, a browser-sent reading is refused, no AI returns `no_ai`)
   - the scheduler sends reminders on a new day and the evening summary once
   - the Dockerfile builds the page, turns the scheduler on, and listens on port 8000
 - **WhatsApp (9):** ElevenLabs voice note after the text, Hindi script, audio served for Twilio, text alone when ElevenLabs fails; the stage loop over signed webhooks (a new number joins, gets the item-wise bill, says haan, says cash de diya, the owner says haan, receipt); unsigned webhooks refused; an owner voice note transcribed, echoed and written; voice refused without speech-to-text or from a non-Twilio URL; typed-in numbers never cold-messaged and web actions not echoed to the owner; galat hai settled by the owner's one word; the pay page needs its secret and shows cash on equal terms, and the join QR; one-word yes/no detection.
@@ -371,14 +339,14 @@ There are 80 tests (74 before the linked-device transport, 67 before the Meta tr
 
 | Path | What it is |
 |---|---|
-| `core/agent-core.js` | The agent: parser, ledger, reminders, UPI and cash matching, Galla Mic scanner, credit score and consent, dashboard, two demo shops, and `runAction` (the one entry point the page and the server share). Pure JS; works in a browser and in Node. |
+| `core/agent-core.js` | The agent: parser, ledger, reminders, UPI and cash matching, credit score and consent, dashboard, two demo shops, and `runAction` (the one entry point the page and the server share). Pure JS; works in a browser and in Node. |
 | `server/server.js` | One shop's agent server: khata on disk, LLM via the Agent37 router with the rules as fallback. |
 | `server/llm.js`, `server/brain.js` | The model chain (`LLM_BASE_URL`, then the router, then rules) and what the server does with each message: understand it, and translate replies to the customer's language. |
 | `core/understand.js` | Prompts, few-shot examples, the JSON schema check and the mapping to khata intents; `scripts/eval-understand.js` + `test/eval/messages.json` measure it. |
 | `server/whatsapp.js` | Real WhatsApp through Twilio or Meta's Cloud API: signed webhooks, 24h window and template fallback, owner and customer routing, voice notes, pay page, join QR. |
 | `stt/whisper_server.py` | Hindi speech-to-text on a GPU (faster-whisper), OpenAI-compatible, for voice notes. |
 | `Dockerfile` | The Agent37 custom image (port 8000). |
-| `web/index.src.html` | The demo page: shop switcher, shopkeeper's phone, customer's phone, Galla Mic, credit score, baaki list, dashboard, bahi-khata. |
+| `web/index.src.html` | The demo page: shop switcher, shopkeeper's phone, customer's phone, credit score, baaki list, dashboard, bahi-khata. |
 | `vendor/qrcode-generator.js` | QR code library for the UPI QR (MIT, Kazuhiko Arase). |
 | `test/` | Tests. |
 | `build.js` | Builds `dist/`. |
@@ -388,4 +356,4 @@ There are 80 tests (74 before the linked-device transport, 67 before the Meta tr
 
 - A WhatsApp Business number instead of the Twilio Sandbox, so customers don't need the join words.
 - A real lender connection through an Account Aggregator, instead of the demo lender.
-- Whisper for the Galla Mic and the web page too, so counter audio never goes to Google.
+- Whisper for the web page too, so demo audio never goes to Google.

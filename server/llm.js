@@ -41,10 +41,10 @@ function createLlm(opts) {
   const trim = (u) => String(u || '').replace(/\/+$/, '');
   const providers = [];
   if (env.LLM_BASE_URL) {
-    providers.push({ name: 'custom', url: trim(env.LLM_BASE_URL), model: env.LLM_MODEL || null, key: () => env.LLM_API_KEY || '', timeoutMs: +env.LLM_BASE_TIMEOUT_MS || 6000, vision: env.LLM_VISION === '1' });
+    providers.push({ name: 'custom', url: trim(env.LLM_BASE_URL), model: env.LLM_MODEL || null, key: () => env.LLM_API_KEY || '', timeoutMs: +env.LLM_BASE_TIMEOUT_MS || 6000 });
   }
   if (env.AGENT37_LLM_PROXY_URL) {
-    providers.push({ name: 'router', url: trim(env.AGENT37_LLM_PROXY_URL), model: (env.LLM_BASE_URL ? env.ROUTER_MODEL : env.LLM_MODEL) || null, key: () => env.AGENT37_MANAGED_TOKEN || '', timeoutMs: +env.LLM_TIMEOUT_MS || 8000, vision: true });
+    providers.push({ name: 'router', url: trim(env.AGENT37_LLM_PROXY_URL), model: (env.LLM_BASE_URL ? env.ROUTER_MODEL : env.LLM_MODEL) || null, key: () => env.AGENT37_MANAGED_TOKEN || '', timeoutMs: +env.LLM_TIMEOUT_MS || 8000 });
   }
   for (const p of providers) p.stats = { calls: 0, ok: 0, failed: 0, lastError: null, lastMs: null };
   const stats = { calls: 0, fallbacks: 0, lastProvider: null, lastError: null };
@@ -81,8 +81,7 @@ function createLlm(opts) {
    */
   async function chatJson(messages, o) {
     o = o || {};
-    const list = providers.filter((p) => !o.vision || p.vision);
-    if (o.vision && env.VISION_MODEL) o = Object.assign({}, o, { model: env.VISION_MODEL });
+    const list = providers;
     if (!list.length) throw new Error('no LLM configured');
     stats.calls++;
     let last = null;

@@ -105,7 +105,6 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .sms { align-self: center; width: 92%; background: var(--sms); border: 1px dashed var(--rule); border-radius: 10px; padding: 7px 10px; font-size: .82rem; color: var(--ink); }
 .sms .kind { color: var(--muted); }
 .exp { font-size: .62rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; margin-left: 6px; vertical-align: middle; }
-.cam { opacity: .75; }
 .voice { display: flex; align-items: center; gap: 8px; min-width: 200px; }
 .voice .play { width: 30px; height: 30px; border-radius: 50%; border: none; background: var(--head); color: #fff; display: grid; place-items: center; flex: none; font-size: .8rem; }
 .wave { flex: 1; display: flex; align-items: center; gap: 2px; height: 22px; }
@@ -216,26 +215,6 @@ tr.fresh td { animation: inkin 1.8s ease-out; }
 .qr { justify-self: center; background: #fff; padding: 6px; border-radius: 8px; line-height: 0; }
 .qr svg { width: 132px; height: 132px; display: block; }
 .side { display: grid; gap: 18px; min-width: 0; }
-.galla .head { padding: 12px 16px 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.galla h2 { font: 1.35rem/1.1 var(--f-display); margin: 0; }
-.galla .head .ghost { margin-left: auto; }
-.galla .pill.on .dot { background: var(--credit); animation: pulse 1.1s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .galla .pill.on .dot { animation: none; } }
-.gnote { margin: 0; padding: 0 16px 8px; font-size: .84rem; color: var(--muted); max-width: 60ch; }
-.gnote b { color: var(--ink); font-weight: 600; }
-.scenes { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 10px; }
-.scenes button { border: 1px solid var(--rule); background: var(--chip); border-radius: 999px; padding: 4px 10px; font-size: .8rem; }
-.scenes button[disabled] { opacity: .5; cursor: default; }
-.ticker { list-style: none; margin: 0; padding: 0 16px 12px; display: grid; gap: 4px; min-height: 2.2em; }
-.ticker:empty::before { content: 'Abhi kuch nahi suna.'; font-size: .82rem; color: var(--muted); }
-.ticker li { display: flex; gap: 8px; align-items: baseline; font-size: .85rem; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--rule); }
-.ticker li q { flex: 1; min-width: 0; quotes: none; }
-.ticker li em { font-style: normal; font-size: .72rem; white-space: nowrap; border-radius: 6px; padding: 0 6px; }
-.ticker li.ignored { color: var(--muted); border-style: dashed; }
-.ticker li.ignored q { filter: blur(.4px); }
-.ticker li.logged em { color: var(--payment); border: 1px solid var(--payment); }
-.ticker li.queued em { color: var(--warn); border: 1px solid var(--warn); }
-.ticker li.unclear em, .ticker li.duplicate em { color: var(--muted); border: 1px solid var(--rule); }
 .shops { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 3px; border: 1px solid var(--rule); border-radius: 999px; background: var(--sheet); }
 .shops button, .shops a, .shops span { border: none; background: none; border-radius: 999px; padding: 4px 12px; font-size: .85rem; color: var(--muted); text-decoration: none; white-space: nowrap; }
 .shops [aria-pressed="true"], .shops span.on { background: var(--head); color: #fff; font-weight: 600; }
@@ -294,35 +273,7 @@ tr.fresh td { animation: inkin 1.8s ease-out; }
 .consent button[disabled] { opacity: .5; cursor: default; }
 .consent dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: .84rem; }
 .consent dt { color: var(--muted); } .consent dd { margin: 0; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
-.cam { background: var(--chip); color: var(--ink); border: 1px solid var(--rule); font-size: 1.15rem; }
-.photo-msg img { display: block; max-width: 100%; border-radius: 8px; margin-bottom: 4px; }
-.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.seg button { border: 1px solid var(--rule); background: var(--sheet); border-radius: 10px; padding: 8px; font-size: .85rem; text-align: left; }
-.seg button[aria-pressed="true"] { border-color: var(--head); background: color-mix(in srgb, var(--head) 12%, var(--sheet)); font-weight: 600; }
-.pnote { font-size: .8rem; color: var(--muted); }
-.pnote.off { color: var(--credit); font-weight: 600; }
-.psamples { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: .8rem; color: var(--muted); }
-.psamples button { border: 1px solid var(--rule); background: var(--chip); border-radius: 999px; padding: 4px 10px; font-size: .8rem; }
 .sheet button[disabled] { opacity: .45; cursor: default; }
-.clines { display: grid; gap: 6px; margin-top: 8px; white-space: normal; }
-.cline { border: 1px solid var(--rule); border-radius: 8px; padding: 6px 8px; background: var(--sheet); display: grid; gap: 3px; }
-.cline .ctop { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-.cline .nm { font-weight: 600; } .cline .am { font-variant-numeric: tabular-nums; font-weight: 600; }
-.cline .ty { font-size: .75rem; color: var(--muted); }
-.cline .chip { font-size: .7rem; border-radius: 6px; padding: 0 6px; border: 1px solid var(--rule); color: var(--muted); }
-.cline .chip.new { border-color: var(--agent); color: var(--agent); }
-.cline .chip.warn { border-color: var(--warn); color: var(--warn); }
-.cline small { color: var(--muted); font-size: .72rem; }
-.cline.st-already, .cline.d-skip { opacity: .6; }
-.cline.d-skip .ctop { text-decoration: line-through; }
-.cline .acts { display: flex; gap: 6px; }
-.cline .acts button { border: 1px solid var(--rule); background: var(--sheet); border-radius: 8px; padding: 1px 10px; font-size: .9rem; }
-.cline .acts button[disabled] { opacity: .4; cursor: default; }
-.cline .done { font-size: .78rem; color: var(--payment); font-weight: 600; }
-.cedit { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.cedit select, .cedit input { font: inherit; font-size: .85rem; border: 1px solid var(--rule); border-radius: 6px; padding: 3px 6px; background: var(--sheet); color: var(--ink); min-width: 0; }
-.cedit .full { grid-column: 1 / -1; }
-.allok { margin-top: 8px; width: 100%; border: none; border-radius: 8px; padding: 8px 10px; background: var(--head); color: #fff; font-weight: 600; }
 .toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: 10px; font-size: .9rem; max-width: min(92vw, 520px); box-shadow: var(--shadow); z-index: 10; }
 /* ---------- sections: sidebar on desktop, tab bar on phones ---------- */
 [data-v][hidden] { display: none !important; }
@@ -378,7 +329,6 @@ body.v-supplier .stage, body.v-hisaab .stage { display: none; }
     <li><span><span id="gWho">Sharma ji</span> jaise chahein dein: <b>💵 Cash de diya</b> ya <b>UPI</b></span></li>
     <li><span>Grahak ke phone par har entry, saaman aur daam ki list ke saath: <b>Haan, sahi hai</b> ya <b>Galat hai</b>. Do-taraf khata, ✓ dono ne maana</span></li>
     <li><span>Cash ya "galat hai" ho toh <b>Dukaan band 🌙</b>: ek tap mein ✅/❌ tay</span></li>
-    <li><span><b>Galla Mic</b>: counter ki baat-cheet chalaiye, agent khud likhta hai</span></li>
   </ol>
 </div>
 
@@ -393,23 +343,10 @@ body.v-supplier .stage, body.v-hisaab .stage { display: none; }
     <div class="chips" id="samples" aria-label="Sample voice notes"></div>
     <form class="compose" id="compose">
       <input id="text" autocomplete="off" placeholder="Likhiye ya mic dabakar boliye…" aria-label="Message to the agent">
-      <button type="button" class="mic cam" id="camBtn" aria-label="Copy ke page ka photo bhejein" title="Copy ka photo (experimental)">📷</button>
-      <input type="file" id="photoIn" accept="image/*" capture="environment" hidden>
       <button type="button" class="mic" id="mic" aria-label="Hold to record a voice note">
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
       </button>
     </form>
-    <div class="sheet" id="psheet" hidden>
-      <h3>Copy ka photo <small class="exp">future / experimental</small></h3>
-      <div class="seg" role="group" aria-label="Kaun sa page">
-        <button type="button" data-mode="daily" aria-pressed="true">Aaj ka page<br><small>aaj ki entries</small></button>
-        <button type="button" data-mode="setup" aria-pressed="false">Purani copy<br><small>pehli baar: sabka baaki</small></button>
-      </div>
-      <div class="pnote" id="pNote"></div>
-      <div class="row"><button type="button" class="go" id="pPick">📷 Photo lein ya chunein</button></div>
-      <div class="psamples" id="pSamples"><span>Copy paas nahi? Sample page:</span><button type="button" data-sample="setup">Purani copy ka page</button><button type="button" data-sample="daily">Aaj ka page</button></div>
-      <div class="row"><button type="button" id="pCancel">Rehne do</button></div>
-    </div>
   </section>
 
   <section class="phone cust" aria-label="Customer's phone" data-v="grahak">
@@ -434,13 +371,6 @@ body.v-supplier .stage, body.v-hisaab .stage { display: none; }
   </section>
 
   <div class="side" data-v="grahak aur">
-  <section class="card galla" aria-label="Galla Mic" data-v="aur">
-    <div class="head"><h2>Galla Mic</h2><span class="pill" id="gStatus"><span class="dot"></span><b id="gStatusText">Band</b></span>
-      <button class="ghost" id="gToggle" type="button">Mic chalu karein</button></div>
-    <p class="gnote">Counter par rakha phone dukaandaar aur grahak ki aam baat sunta hai. Sirf <b>jama, udhaar, baaki, likh lo</b> wali line uthata hai. Baaki sab usi waqt chhod deta hai; koi audio ya baat save nahi hoti.</p>
-    <div class="scenes" id="scenes" aria-label="Sample counter conversations"></div>
-    <ol class="ticker" id="ticker" aria-live="polite"></ol>
-  </section>
   <section class="card score" aria-label="Customer credit score" data-v="aur">
     <div class="head"><h2>Credit score</h2><span class="who" id="scWho"></span></div>
     <div class="scbody">
@@ -607,21 +537,17 @@ body.v-supplier .stage, body.v-hisaab .stage { display: none; }
     let html = dayRuns(msgs, (m) => {
       const mine = m.from === 'owner';
       if (mine && m.source === 'upi-sms') return '<div class="sms"><span class="kind">📩 Bank SMS · agent ko apne aap mila</span><br>' + esc(m.text) + '</div>';
-      if (mine && m.source === 'photo') {
-        return '<div class="msg out photo-msg">' + (m.img ? '<img src="' + esc(m.img) + '" alt="Copy ka photo">' : '') + esc(m.text) + '<div class="meta"><span>' + timeOf(m.ts) + '</span><span>' + (m.id === 'tmp' ? '…' : '✓✓') + '</span></div></div>';
-      }
-      if (m.kind === 'copy-review') return renderReview(m);
       if (mine && m.source === 'voice') {
         return '<div class="msg out"><div class="voice"><span class="play" aria-hidden="true">▶</span><span class="wave">' + waveBars(m.text.length) +
           '</span><span class="dur">0:' + String(m.dur || Math.max(2, Math.round(m.text.length / 12))).padStart(2, '0') + '</span></div>' +
           '<div class="transcript">Suna: <b>' + esc(m.text) + '</b></div><div class="meta"><span>' + timeOf(m.ts) + '</span><span>✓✓</span></div></div>';
       }
-      const kind = m.kind === 'evening' ? '<span class="kind">Shaam ka hisaab</span>\n' : m.kind === 'morning' ? '<span class="kind">Subah ka update</span>\n' : m.kind === 'cash-confirm' ? '<span class="kind l2">Shaam ka confirm</span>\n' : m.kind === 'galla' ? '<span class="kind">Galla Mic</span>\n' : m.kind === 'consent' ? '<span class="kind">Credit ijaazat</span>\n' : m.kind === 'copy' ? '<span class="kind">Copy ka photo · experimental</span>\n' : m.kind === 'check' ? '<span class="kind l3">Grahak ka sawaal</span>\n' : m.kind === 'statement-sent' ? '<span class="kind">Mahine ka hisaab</span>\n' : '';
+      const kind = m.kind === 'evening' ? '<span class="kind">Shaam ka hisaab</span>\n' : m.kind === 'morning' ? '<span class="kind">Subah ka update</span>\n' : m.kind === 'cash-confirm' ? '<span class="kind l2">Shaam ka confirm</span>\n' : m.kind === 'consent' ? '<span class="kind">Credit ijaazat</span>\n' : m.kind === 'check' ? '<span class="kind l3">Grahak ka sawaal</span>\n' : m.kind === 'statement-sent' ? '<span class="kind">Mahine ka hisaab</span>\n' : '';
       const claimsHtml = m.kind === 'cash-confirm' ? '<div class="claims">' + m.claimIds.map((id) => {
         const k = (state.cashClaims || []).find((x) => x.id === id); if (!k) return '';
         const who = k.type === 'check' ? esc((cust(k.custId) || {}).name) + ' · ' + esc(k.label) + '<br><small>grahak ne kaha: galat hai · ✅ entry sahi, ❌ galti thi</small>'
           : esc((cust(k.custId) || {}).name) + ' · ' + esc(C.rupees(k.amount)) + (k.type === 'credit' ? ' udhaar' : ' cash') +
-          '<br><small>' + (k.origin === 'galla' ? 'Galla Mic ne suna' + (k.why ? ': ' + esc(k.why) : '') : 'grahak ne bataya') + '</small>';
+          '<br><small>grahak ne bataya</small>';
         const act = k.status === 'pending' ? '<button class="yes" type="button" data-claim="' + k.id + '" data-ok="1" aria-label="Mila">✅</button><button class="no" type="button" data-claim="' + k.id + '" data-ok="0" aria-label="Nahi mila">❌</button>'
           : k.status === 'confirmed' ? '<b class="done">Mila ✓</b>' : k.status === 'kept' ? '<b class="done">Entry sahi</b>' : k.status === 'fixed' ? '<b class="bad">Hata di</b>' : '<b class="bad">Vivaad</b>';
         return '<div class="claim"><span>' + who + '</span>' + act + '</div>';
@@ -633,45 +559,6 @@ body.v-supplier .stage, body.v-hisaab .stage { display: none; }
     });
     if (busy) html += '<div class="typing">Udhaar Agent likh raha hai…</div>';
     const chat = $('chat'); chat.innerHTML = html; chat.scrollTop = chat.scrollHeight;
-  }
-  // ---------- copy photo: "Maine yeh padha" review, one line at a time or "Sab sahi" ----------
-  let editLine = null;
-  const TYPE_LABEL = { credit: 'udhaar', payment: 'jama', balance: 'kul baaki' };
-  function renderReview(m) {
-    const rv = (state.copyReviews || []).find((r) => r.id === m.reviewId);
-    if (!rv) return '';
-    const lines = rv.lines.map((l) => {
-      const who = l.custId ? (cust(l.custId) || {}).name || l.name : l.name;
-      let chip = '';
-      if (l.status === 'already') chip = '<span class="chip">' + (l.type === 'balance' ? 'khate se mel khaata ✓' : 'pehle se khate mein ✓') + '</span>';
-      else if (l.status === 'newcust') chip = '<span class="chip warn">naya grahak</span>';
-      else if (l.status === 'ambiguous') chip = '<span class="chip warn">naam pakka nahi: ✏️ se chuniye</span>';
-      else if (l.type === 'balance') chip = '<span class="chip new">khate mein ' + esc(C.rupees(l.amount - l.adjust)) + ' · ' + (l.adjust > 0 ? '+' : '−') + esc(C.rupees(Math.abs(l.adjust))) + '</span>';
-      else chip = '<span class="chip new">nayi entry</span>';
-      if (!l.sure && !l.edited) chip += '<span class="chip warn">⚠ saaf nahi padha</span>';
-      const top = '<div class="ctop"><span class="nm">' + esc(who) + '</span><span class="am">' + esc(C.rupees(l.amount)) + '</span><span class="ty">' + TYPE_LABEL[l.type] +
-        (l.type !== 'balance' && l.date !== state.today ? ' · ' + esc(C.fmtDate(l.date)) : '') + (l.items ? ' · ' + esc(l.items) : '') + '</span>' + chip + '</div>';
-      const raw = l.raw ? '<small>Copy mein: "' + esc(l.raw) + '"</small>' : '';
-      let acts = '';
-      if (l.decision === 'ok') acts = '<span class="done">Likha ✓</span>';
-      else if (l.decision === 'skip') acts = '<span class="done" style="color:var(--muted)">Chhoda</span>';
-      else if (rv.open && l.status !== 'already') acts = '<div class="acts"><button type="button" data-cl="ok" data-line="' + l.id + '" aria-label="Sahi, likho"' + (l.status === 'ambiguous' ? ' disabled' : '') + '>✅</button>' +
-        '<button type="button" data-cl="edit" data-line="' + l.id + '" aria-label="Badlo">✏️</button><button type="button" data-cl="skip" data-line="' + l.id + '" aria-label="Chhodo">❌</button></div>';
-      let form = '';
-      if (editLine === l.id && l.decision === 'pending') {
-        const opts = (l.options || []).concat(state.customers.map((c) => c.id).filter((id) => (l.options || []).indexOf(id) < 0));
-        form = '<div class="cedit" data-form="' + l.id + '"><select class="full" name="cust" aria-label="Grahak">' +
-          '<option value="">Naya grahak: ' + esc(l.name) + '</option>' + opts.map((id) => '<option value="' + id + '"' + (id === l.custId ? ' selected' : '') + '>' + esc(cust(id).name) + '</option>').join('') + '</select>' +
-          '<input name="amount" type="number" min="0" inputmode="numeric" value="' + l.amount + '" aria-label="Raqam">' +
-          '<select name="type" aria-label="Kya hai">' + (l.type === 'balance' ? '<option value="balance">kul baaki</option>' : '<option value="credit"' + (l.type === 'credit' ? ' selected' : '') + '>udhaar</option><option value="payment"' + (l.type === 'payment' ? ' selected' : '') + '>jama</option>') + '</select>' +
-          '<button type="button" data-cl="save" data-line="' + l.id + '">Theek hai</button><button type="button" data-cl="cancel" data-line="' + l.id + '">Rehne do</button></div>';
-      }
-      return '<div class="cline st-' + l.status + ' d-' + l.decision + '">' + top + raw + acts + form + '</div>';
-    }).join('');
-    const ready = rv.lines.filter((l) => l.decision === 'pending' && (l.status === 'new' || l.status === 'newcust')).length;
-    const all = rv.open && ready ? '<button type="button" class="allok" data-review="' + rv.id + '">Sab sahi ✅ (' + ready + ' entry likho)</button>' : '';
-    return '<div class="msg in"><span class="kind">Maine yeh padha</span>\n' + esc(m.text) + '<div class="clines">' + lines + '</div>' + all +
-      '<div class="meta"><span>' + timeOf(m.ts) + '</span></div></div>';
   }
   function renderCustomer() {
     const sel = $('custSel');
@@ -771,10 +658,9 @@ body.v-supplier .stage, body.v-hisaab .stage { display: none; }
     const tx = showAll ? all : all.slice(0, 10);
     $('rows').innerHTML = tx.map((t) => {
       const src = t.note === 'seed' ? '<span>purana</span>' :
-        '<span>' + (t.source === 'galla' ? '🎙 counter' : t.source === 'voice' ? '🎙 voice' : t.source === 'upi' ? '💳 UPI' : t.source === 'cash' ? '💵 cash' : '⌨ text') + '</span>' +
+        '<span>' + (t.source === 'voice' ? '🎙 voice' : t.source === 'upi' ? '💳 UPI' : t.source === 'cash' ? '💵 cash' : '⌨ text') + '</span>' +
         (t.matchedBy ? '<span class="ai">' + esc(t.matchedBy) + '</span>' : t.parser === 'llm' ? '<span class="ai">' + AI_NAME + '</span>' : t.source === 'upi' ? '' : '<span>rules</span>') +
         (t.source === 'cash' && t.via === 'voice' ? '<span>dukaandaar ne bola</span>' : '') +
-        (t.via === 'galla' && !t.matchedBy ? '<span class="ai">Galla Mic</span>' : '') +
         (t.custOk && !t.voided ? (t.custAuto ? '<span class="chk" title="Grahak ne 24 ghante mein kuch nahi kaha">✓ 24 ghante, jawab nahi</span>' : '<span class="chk" title="Grahak ne WhatsApp par maana">✓ grahak ne maana</span>') : '') +
         (t.custWrong && !t.custOk ? '<span class="chk bad">⚠ grahak: galat hai</span>' : '') +
         (t.voided ? '<span>cancel</span>' : '');
@@ -810,13 +696,13 @@ body.v-supplier .stage, body.v-hisaab .stage { display: none; }
     $('khataShop').textContent = state.shop.name + (state.shop.owner ? ' · ' + state.shop.owner : '');
     const ex = EXAMPLES[state.shop.id] || EXAMPLES.gupta;
     $('gEx').textContent = '"' + ex[0] + '"'; $('gWho').textContent = ex[1];
-    if (shownSamplesFor !== state.shop.id) { shownSamplesFor = state.shop.id; renderSamples(); renderScenes(); }
+    if (shownSamplesFor !== state.shop.id) { shownSamplesFor = state.shop.id; renderSamples(); }
   }
   $('shops').addEventListener('click', (e) => {
     const b = e.target.closest('[data-shop]'); if (!b || busy || b.dataset.shop === cur) return;
     save(); cur = b.dataset.shop; state = shops[cur];
     if (!state) fresh(); else { selCust = (state.customers[0] || {}).id || 'C001'; showAll = false; }
-    freshTxn = null; ticker.length = 0; renderTicker(); $('sheet').hidden = true; render();
+    freshTxn = null; $('sheet').hidden = true; render();
     toast(state.shop.name + ': is dukaan ka apna agent aur apna khata.');
   });
 
@@ -955,7 +841,6 @@ body.v-supplier .stage, body.v-hisaab .stage { display: none; }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   let rec = null, recStart = 0, recording = false;
   function startRec() {
-    if (typeof gallaOn !== 'undefined' && gallaOn) { toast('Galla Mic chalu hai, woh pehle se sun raha hai.'); return; }
     if (!SR) { toast('Is browser mein voice nahi chalta. Chrome mein kholiye, ya sample voice note chuniye.'); return; }
     try {
       rec = new SR(); rec.lang = 'hi-IN'; rec.interimResults = true; rec.continuous = true;
@@ -1086,187 +971,10 @@ body.v-supplier .stage, body.v-hisaab .stage { display: none; }
   });
 
   $('chat').addEventListener('click', async (e) => {
-    const all = e.target.closest('[data-review]');
-    if (all) { if (busy) return; busy = true; all.disabled = true; await safeAct('copyConfirmAll', { reviewId: all.dataset.review }); busy = false; editLine = null; render(); return; }
-    const cl = e.target.closest('[data-cl]');
-    if (cl) {
-      if (busy || cl.disabled) return;
-      const id = cl.dataset.line, a = cl.dataset.cl;
-      if (a === 'edit') { editLine = id; renderOwner(); return; }
-      if (a === 'cancel') { editLine = null; renderOwner(); return; }
-      busy = true;
-      if (a === 'save') {
-        const f = cl.closest('[data-form]');
-        const custId = f.querySelector('[name=cust]').value;
-        const line = (state.copyReviews || []).flatMap((r) => r.lines).find((x) => x.id === id) || {};
-        const edit = { amount: +f.querySelector('[name=amount]').value, type: f.querySelector('[name=type]').value };
-        if (custId) edit.custId = custId; else { edit.name = line.name; edit.newCustomer = true; }
-        await safeAct('copyDecide', { lineId: id, decision: 'edit', edit }); editLine = null;
-      } else await safeAct('copyDecide', { lineId: id, decision: a });
-      busy = false; render(); return;
-    }
     const b = e.target.closest('[data-claim]'); if (!b || b.disabled) return;
     b.parentNode.querySelectorAll('button').forEach((x) => { x.disabled = true; });
     safeAct('confirm', { claimId: b.dataset.claim, ok: b.dataset.ok === '1' }).then(render);
   });
-
-  // ---------- copy photo: needs an AI that can see images; never guesses ----------
-  let imgLimits = null, photoMode = 'daily';
-  function visionReady() {
-    if (REMOTE) return !!(engineInfo && engineInfo.llm);
-    return !!(sample && aiOn && imgLimits);
-  }
-  function renderPhotoSheet() {
-    const ok = visionReady();
-    $('pNote').className = 'pnote' + (ok ? '' : ' off');
-    $('pNote').textContent = ok
-      ? 'AI page padhkar har line dikhayega. Photo save nahi hota, aur aapke ✅ ke bina kuch nahi likha jaata.'
-      : (!REMOTE && sample && !aiOn ? 'AI band hai (upar "offline rules"). Photo padhne ke liye AI chalu kijiye.'
-        : 'Is version mein AI nahi hai, isliye photo padha nahi ja sakta. Hum andaaze se kuch nahi bharte. Abhi voice note ya type karke bhejiye.');
-    $('pPick').disabled = !ok;
-    $('pSamples').querySelectorAll('button').forEach((b) => { b.disabled = !ok; });
-    $('psheet').querySelectorAll('[data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === photoMode)));
-    if (imgLimits && imgLimits.mediaTypes) $('photoIn').accept = imgLimits.mediaTypes.join(',');
-  }
-  $('camBtn').addEventListener('click', () => { if (gallaOn) gallaStop(); photoMode = state.customers.length ? 'daily' : 'setup'; renderPhotoSheet(); $('psheet').hidden = false; });
-  $('pCancel').addEventListener('click', () => { $('psheet').hidden = true; });
-  $('psheet').addEventListener('click', (e) => { const b = e.target.closest('[data-mode]'); if (b) { photoMode = b.dataset.mode; renderPhotoSheet(); } });
-  $('pPick').addEventListener('click', () => { $('photoIn').value = ''; $('photoIn').click(); });
-  $('photoIn').addEventListener('change', async () => {
-    const f = $('photoIn').files && $('photoIn').files[0]; if (!f) return;
-    $('psheet').hidden = true;
-    try { await readPhoto(await shrink(await loadImage(f)), photoMode); } catch (e) { toast('Photo khul nahi paya. Dusra photo chuniye.'); }
-  });
-  $('pSamples').addEventListener('click', async (e) => {
-    const b = e.target.closest('[data-sample]'); if (!b || b.disabled) return;
-    $('psheet').hidden = true;
-    await readPhoto(await shrink(await drawSamplePage(b.dataset.sample)), b.dataset.sample);
-  });
-  function loadImage(file) {
-    return new Promise((res, rej) => { const url = URL.createObjectURL(file); const im = new Image(); im.onload = () => { res(im); }; im.onerror = rej; im.src = url; });
-  }
-  // shrink to at most 1600 px on the long side as JPEG: enough for handwriting, small enough to send
-  function shrink(src) {
-    const w = src.naturalWidth || src.width, h = src.naturalHeight || src.height, k = Math.min(1, 1600 / Math.max(w, h));
-    const cv = document.createElement('canvas'); cv.width = Math.round(w * k); cv.height = Math.round(h * k);
-    const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(src, 0, 0, cv.width, cv.height);
-    return new Promise((res) => cv.toBlob((blob) => res({ blob, url: cv.toDataURL('image/jpeg', 0.5) }), 'image/jpeg', 0.85));
-  }
-  // A handwritten-looking sample page, drawn here so the AI really reads it (nothing is pre-filled).
-  const SAMPLE_PAGES = {
-    gupta: { setup: ['उधारी यादी — बाकी', 'Meena didi  700', 'पप्पू  170', 'Verma ji  530', 'Deshmukh kaka  2400', 'Patil bhau  3500', 'Raju  450'],
-             daily: ['{date}', 'Sharma ji  340', 'पप्पू  50', 'Verma  300 जमा', 'Joshi kaku  120 doodh', 'Raju  80'] },
-    balaji: { setup: ['उधारी — बाकी', 'Suresh driver  900', 'Mishra ji  460', 'Zade bhau  3400', 'Pinky didi  250', 'Gopal  600'],
-              daily: ['{date}', 'Anita bhabhi  160 doodh', 'मिश्रा जी  300', 'Suresh  500 जमा', 'Ingle sir  90 dahi', 'Gopal  120'] },
-    nayi: { setup: ['उधारी यादी — बाकी', 'Sharma ji  1240', 'Meena didi  700', 'पप्पू  170', 'Verma ji  530', 'Deshmukh kaka  2400', 'Patil bhau  3200', 'Joshi kaku  850'],
-            daily: ['{date}', 'Sharma ji  340', 'पप्पू  50', 'Verma  300 जमा', 'Raju  80'] }
-  };
-  async function drawSamplePage(mode) {
-    const page = (SAMPLE_PAGES[state.shop.id] || SAMPLE_PAGES.gupta)[mode];
-    const d = state.today.split('-');
-    const lines = page.map((t) => t.replace('{date}', 'दि. ' + +d[2] + '/' + +d[1] + '/' + d[0].slice(2)));
-    try { await document.fonts.load('44px Kalam', lines.join(' ')); } catch (e) {}
-    const cv = document.createElement('canvas'); cv.width = 900; cv.height = 1200;
-    const g = cv.getContext('2d');
-    g.fillStyle = '#fbf6e6'; g.fillRect(0, 0, 900, 1200);
-    g.strokeStyle = '#b9cbe3'; g.lineWidth = 2;
-    for (let y = 150; y < 1200; y += 72) { g.beginPath(); g.moveTo(0, y); g.lineTo(900, y); g.stroke(); }
-    g.strokeStyle = '#d9574a'; g.beginPath(); g.moveTo(110, 0); g.lineTo(110, 1200); g.stroke();
-    g.fillStyle = '#1d2a6b'; g.textBaseline = 'alphabetic';
-    lines.forEach((t, i) => {
-      g.save(); g.translate(135 + (i % 3) * 4, 138 + i * 72 - (i % 2) * 3); g.rotate((i % 2 ? -1 : 1) * 0.008);
-      g.font = (i === 0 ? '700 ' : '') + '44px Kalam, "Mukta", cursive'; g.fillText(t, 0, 0); g.restore();
-    });
-    return cv;
-  }
-  async function readPhoto(img, mode) {
-    if (busy) return;
-    if (!visionReady()) { renderPhotoSheet(); $('psheet').hidden = false; return; }
-    busy = true;
-    const temp = { id: 'tmp', to: 'agent', from: 'owner', source: 'photo', img: img.url, text: '📷 Copy ka photo · padh raha hoon…', date: state.today, ts: Date.now() };
-    state.messages.push(temp); render();
-    let failed = null;
-    try {
-      if (REMOTE) {
-        const dataUrl = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(img.blob); });
-        const r = await fetch('api/photo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ image: dataUrl, mode }) });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok || !j.state) throw { code: j.error || 'HTTP ' + r.status };
-        state = j.state; engineInfo = j.engine;
-      } else {
-        const reading = await sample.json(C.copyReadRequest(state, mode), { images: [img.blob], modelTier: 'default' });
-        const i = state.messages.indexOf(temp); if (i >= 0) state.messages.splice(i, 1);
-        await act('copyRead', { reading, mode });
-      }
-    } catch (e) { failed = e || {}; }
-    const i = state.messages.indexOf(temp); if (i >= 0) state.messages.splice(i, 1);
-    busy = false; render();
-    if (failed) {
-      const c = failed.code;
-      toast(c === 'no_ai' || c === 'images_unavailable' || c === 'not_granted' ? 'Photo padhne ke liye AI ki ijaazat ya suvidha nahi mili. Kuch nahi likha gaya; voice note se bhejiye.'
-        : c === 'rate_limited' ? 'AI abhi busy hai. Thodi der baad dobara photo bhejiye.'
-        : 'AI photo nahi padh paya. Kuch nahi likha gaya. Page seedha rakhkar dobara photo bhejiye.');
-    }
-  }
-
-  // ---------- Galla Mic: hears counter talk, keeps only ledger lines ----------
-  const SCENES_BY = {};
-  SCENES_BY.gupta = [
-    ['Meena didi paise de gayi', ['Aaiye Meena didi, kya haal hai?', 'Bas theek, aaj bitiya ki fees bhari', 'Meena didi, 500 jama kar liye, 200 baaki']],
-    ['Bheed mein Pappu ka udhaar', ['Bhaiya ek Parle-G aur do anda dena', 'Kal India jeet gaya, maza aa gaya', 'Pappu, 2 kilo cheeni aur tel likh lo, 180 ka', 'Aur haan, chhutta nahi hai']],
-    ['Verma ji: hisaab mel nahi', ['Verma ji namaste', 'Verma ji 300 jama, baaki 100']],
-    ['Sirf baat-cheet', ['Aaj garmi bahut hai', 'Doodh kitne ka hai aaj?', 'Chalo baad mein milte hain']]
-  ];
-  SCENES_BY.balaji = [
-    ['Mishra ji paise de gaye', ['Mishra ji namaste, dahi taaza hai?', 'Haan ji, subah ka hai', 'Mishra ji 300 jama, baaki 160']],
-    ['Bheed mein Rafiq chacha', ['Do packet doodh aur ek bread dena', 'Bus aaj phir late hai', 'Rafiq chacha, 90 udhaar likh lo']],
-    ['Suresh: hisaab mel nahi', ['Suresh bhai, kab se nahi aaye', 'Suresh driver 500 jama, baaki 300']],
-    ['Sirf baat-cheet', ['Aaj garmi bahut hai', 'Paneer kitne ka hai aaj?', 'Chalo baad mein milte hain']]
-  ];
-  const scenesNow = () => SCENES_BY[state.shop.id] || SCENES_BY.gupta;
-  const ticker = [];
-  const LABEL = { ignored: 'chhod diya', logged: 'khate mein likha', queued: 'shaam ko poochhega', unclear: 'naam pakka nahi', duplicate: 'pehle hi likha' };
-  function renderTicker() {
-    $('ticker').innerHTML = ticker.slice(-6).map((t) => '<li class="' + t.action + '"><q>' + esc(t.text) + '</q><em>' + LABEL[t.action] + '</em></li>').join('');
-  }
-  async function heard(text) {
-    text = (text || '').trim(); if (!text) return;
-    const r = await safeAct('galla', { text }); if (!r) return;
-    const item = { text, action: r.action };
-    ticker.push(item);
-    if (r.action === 'ignored') setTimeout(() => { item.text = '··· baat-cheet (save nahi hui)'; renderTicker(); }, 2200);
-    if (r.action !== 'ignored') { const t = freshTxn && state.txns.find((x) => x.id === freshTxn); if (t) selCust = t.custId; render(); }
-    renderTicker();
-  }
-  function renderScenes() { $('scenes').innerHTML = scenesNow().map((sc, i) => '<button type="button" data-s="' + i + '">▶ ' + esc(sc[0]) + '</button>').join(''); }
-  $('scenes').addEventListener('click', (e) => {
-    const b = e.target.closest('button'); if (!b) return;
-    const lines = scenesNow()[+b.dataset.s][1];
-    const btns = $('scenes').querySelectorAll('button'); btns.forEach((x) => { x.disabled = true; });
-    $('gStatus').classList.add('on'); $('gStatusText').textContent = 'Sun raha hai (sample)';
-    lines.forEach((l, i) => setTimeout(() => {
-      heard(l);
-      if (i === lines.length - 1) { btns.forEach((x) => { x.disabled = false; }); if (!gallaOn) { $('gStatus').classList.remove('on'); $('gStatusText').textContent = 'Band'; } }
-    }, 900 + i * 1500));
-  });
-  // live: continuous Hindi recognition in Chrome; each finished sentence goes through the same scanner
-  let gallaOn = false, gRec = null;
-  function gallaStart() {
-    if (!SR) { toast('Live Galla Mic ke liye Chrome chahiye. Yahan sample baat-cheet chalaiye.'); return; }
-    gRec = new SR(); gRec.lang = 'hi-IN'; gRec.continuous = true; gRec.interimResults = false;
-    gRec.onresult = (e) => { for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) heard(e.results[i][0].transcript); };
-    gRec.onerror = (e) => {
-      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { gallaStop(); toast('Mic ki anumati nahi mili. Yeh preview mic block karta hai; standalone file Chrome mein kholiye, ya sample baat-cheet chalaiye.'); }
-    };
-    gRec.onend = () => { if (gallaOn) { try { gRec.start(); } catch (e) {} } };
-    try { gRec.start(); gallaOn = true; } catch (e) { toast('Mic shuru nahi ho paya: ' + e.message); return; }
-    $('gStatus').classList.add('on'); $('gStatusText').textContent = 'Sun raha hai'; $('gToggle').textContent = 'Mic band karein';
-  }
-  function gallaStop() {
-    gallaOn = false; if (gRec) { try { gRec.stop(); } catch (e) {} }
-    $('gStatus').classList.remove('on'); $('gStatusText').textContent = 'Band'; $('gToggle').textContent = 'Mic chalu karein';
-  }
-  $('gToggle').addEventListener('click', () => { gallaOn ? gallaStop() : gallaStart(); });
 
   // ---------- time ----------
   $('closeDay').addEventListener('click', async () => {
@@ -1288,7 +996,7 @@ body.v-supplier .stage, body.v-hisaab .stage { display: none; }
   $('moreBtn').addEventListener('click', () => { showAll = !showAll; renderKhata(); });
   $('resetBtn').addEventListener('click', async () => {
     if (busy) return; busy = true; await safeAct('reset'); busy = false;
-    freshTxn = null; ticker.length = 0; renderTicker(); $('sheet').hidden = true; render(); toast('Demo dobara shuru. Aaj ki tareekh se.');
+    freshTxn = null; $('sheet').hidden = true; render(); toast('Demo dobara shuru. Aaj ki tareekh se.');
   });
   $('aiToggle').addEventListener('click', () => { aiOn = !aiOn; renderEngine(); save(); toast(aiOn ? 'Ab AI samjhega. Pehli baar anumati maangi ja sakti hai.' : 'Ab offline rules se samjhega.'); });
 
@@ -1300,7 +1008,6 @@ body.v-supplier .stage, body.v-hisaab .stage { display: none; }
   if (!REMOTE && window.claude && typeof window.claude.use === 'function') {
     window.claude.use('sample').then((s) => {
       sample = s; renderEngine();
-      if (s && s.limits) s.limits().then((l) => { imgLimits = (l && l.images) || null; renderPhotoSheet(); }).catch(() => {});
     }).catch(() => {});
   }
 })();
