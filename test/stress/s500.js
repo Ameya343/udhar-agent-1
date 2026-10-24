@@ -250,7 +250,7 @@ for (let i = 0; i < 45; i++) {
     const r = step(s, 'act', 'nextDay', {});
     const rem = r.msgs.filter((m) => m.kind === 'reminder' && m.to === id);
     const dueNow = c.dueDate; const late = dueNow ? C.daysBetween(dueNow, s.today) : null;
-    const exp = late === 0 ? 1 : late === 3 ? 2 : (late >= 7 && late % 7 === 0) ? 3 : 0;
+    const exp = late === 0 ? 1 : late === 3 ? 2 : late === 7 ? 3 : 0; // three reminders, then the owner is told (KAN-89)
     const bal = C.balance(s, id);
     const mustNot = bal <= 0 || c.optedOut || c.removed;
     if (mustNot) expect(r, !rem.length, bal <= 0 ? 'high' : 'medium', bal <= 0 ? 'reminder-after-paid' : 'reminder-emitted-after-optout', 'L' + (rem[0] || {}).level + ' on day ' + d + ' bal ' + bal + ' opted ' + !!c.optedOut, 'no reminder');

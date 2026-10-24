@@ -219,18 +219,18 @@ test('public visitors are rate limited on /api/act; local calls are not', async 
   } finally { srv.close(); }
 });
 
-test('a live shop (REAL_CLOCK=1): a public visitor cannot reset the khata or move its day', async () => {
+test('a live shop (REAL_CLOCK=1): the public page is view-only (KAN-44)', async () => {
   const srv = createServer({ env: { SHOP: 'gupta', DATA_DIR: tmpDir(), REAL_CLOCK: '1', ADMIN_KEY: 'owner-secret' }, today: () => TODAY });
   const base = await listen(srv);
   try {
     const post = (action, headers) => fetch(base + '/api/act', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ action, args: action === 'owner' ? { text: 'Sharma ji ka kitna baaki hai' } : {} }) });
     const pub = { 'x-forwarded-for': '1.2.3.4' };
-    for (const a of ['reset', 'nextDay', 'closeDay']) {
+    for (const a of ['reset', 'nextDay', 'closeDay', 'owner', 'customer', 'confirm', 'consentAnswer']) {
       const r = await post(a, pub);
       assert.equal(r.status, 403, a);
       assert.match((await r.json()).message, /asli dukaan/);
     }
-    assert.equal((await post('owner', pub)).status, 200, 'everything else stays open');
+    assert.equal((await post('owner', { ...pub, 'x-admin-key': 'owner-secret' })).status, 200, 'the owner with the key can act');
     assert.equal((await post('reset', { ...pub, 'x-admin-key': 'wrong' })).status, 403);
     assert.equal((await post('reset', { ...pub, 'x-admin-key': 'owner-secret' })).status, 200);
     assert.equal((await post('reset', {})).status, 200, 'the instance itself can always reset');
@@ -245,4 +245,61 @@ test('copy photo reading is gone: no /api/photo route', async () => {
     assert.equal(r.status, 404);
     for (const a of ['copyRead', 'copyDecide', 'copyConfirmAll']) assert.equal((await act(u, a, {})).status, 400, a);
   } finally { s.close(); }
+});
+
+test('KAN-43: /api/state never sends the pay secret; a live shop shows public visitors no names, balances or entries', async () => {
+  const srv = createServer({ env: { SHOP: 'gupta', DATA_DIR: tmpDir(), REAL_CLOCK: '1', ADMIN_KEY: 'k' }, today: () => TODAY });
+  const base = await listen(srv);
+  try {
+    srv.getState().paySecret = 'abcdef0123456789';
+    srv.getState().customers[0].phone = '9876500001';
+    const pub = await (await fetch(base + '/api/state', { headers: { 'x-forwarded-for': '1.2.3.4' } })).json();
+    assert.equal(pub.state.paySecret, undefined);
+    assert.equal(pub.locked, true);
+    assert.deepEqual([pub.state.customers.length, pub.state.txns.length, pub.state.messages.length], [0, 0, 0]);
+    const name = srv.getState().customers[0].name;
+    assert.ok(!JSON.stringify(pub).includes('9876500001') && !JSON.stringify(pub).includes(name));
+    const keyed = await (await fetch(base + '/api/state', { headers: { 'x-forwarded-for': '1.2.3.4', 'x-admin-key': 'k' } })).json();
+    assert.equal(keyed.state.customers[0].phone, '9876500001');
+    const own = await (await fetch(base + '/api/state')).json();
+    assert.equal(own.state.paySecret, undefined);
+    assert.equal(own.state.customers[0].phone, '9876500001');
+  } finally { srv.close(); }
+});
+
+test('KAN-46: a client-chosen x-forwarded-for does not escape the rate limit', async () => {
+  const srv = createServer({ env: { SHOP: 'gupta', DATA_DIR: tmpDir(), ACT_LIMIT_PER_MIN: '2' }, today: () => TODAY });
+  const base = await listen(srv);
+  try {
+    const post = (xff) => fetch(base + '/api/act', { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': xff }, body: JSON.stringify({ action: 'nextDay', args: {} }) }).then((r) => r.status);
+    const got = [];
+    for (let i = 0; i < 4; i++) got.push(await post('9.9.9.' + i + ', 1.2.3.4'));
+    assert.deepEqual(got, [200, 200, 429, 429]);
+  } finally { srv.close(); }
+});
+
+test('KAN-65: malformed input gets 400/404, HEAD / gets 200', async () => {
+  const srv = createServer({ env: { SHOP: 'gupta', DATA_DIR: tmpDir() }, today: () => TODAY });
+  const base = await listen(srv);
+  try {
+    const post = (body) => fetch(base + '/api/act', { method: 'POST', headers: { 'content-type': 'application/json' }, body }).then((r) => r.status);
+    assert.equal(await post('null'), 400);
+    assert.equal(await post('[1]'), 400);
+    assert.equal(await post(JSON.stringify({ action: 'owner', args: { text: { toString: 1 } } })), 400);
+    assert.equal((await fetch(base + '/pay/%ZZ')).status, 404);
+    assert.equal((await fetch(base + '/', { method: 'HEAD' })).status, 200);
+  } finally { srv.close(); }
+});
+
+test('KAN-66: pay page does not double the honorific', async () => {
+  const srv = createServer({ env: { SHOP: 'gupta', DATA_DIR: tmpDir() }, today: () => TODAY });
+  const base = await listen(srv);
+  try {
+    const st = srv.getState(); st.paySecret = 'abcdef0123456789';
+    const c = st.customers.find((x) => / ji$/.test(x.name));
+    const tok = require('crypto').createHmac('sha256', st.paySecret).update(c.id).digest('hex').slice(0, 16);
+    const html = await (await fetch(base + '/pay/' + c.id + '.' + tok)).text();
+    assert.ok(html.includes(c.name + ', aapka baaki'), html.slice(0, 300));
+    assert.ok(!html.includes(' ji ji'));
+  } finally { srv.close(); }
 });

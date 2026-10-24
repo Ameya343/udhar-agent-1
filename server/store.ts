@@ -38,7 +38,16 @@ function createFileStore(dataDir: string, shopId: string) {
   fs.mkdirSync(dataDir, { recursive: true });
   return {
     kind: 'file',
-    load() { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return null; } },
+    load() {
+      let raw: string;
+      try { raw = fs.readFileSync(file, 'utf8'); } catch (e) { return null; } // no khata yet
+      try { return JSON.parse(raw); } catch (e) {
+        // a damaged khata is kept aside and the server refuses to start, never seeds a demo shop over it (KAN-85)
+        const keep = file + '.corrupt-' + new Date().toISOString().replace(/[:.]/g, '-');
+        try { fs.copyFileSync(file, keep); } catch (e2) {}
+        throw new Error('khata file ' + file + ' is damaged (' + (e as Error).message + '); copy kept at ' + keep + '. Fix or restore it from a backup, then start again.');
+      }
+    },
     save(state: State) {
       const tmp = file + '.' + process.pid + '.tmp';
       fs.writeFileSync(tmp, JSON.stringify(state));

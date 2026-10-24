@@ -27,7 +27,7 @@ function createBrain(opts: BrainOpts) {
     if (!llm.enabled || rules.intent === 'choice' || answering || C.looksLikeUpiSms(text) || C.looksLikeCounter(text)) return rules;
     try {
       const r = await llm.chatJson(U.ownerMessages(state, o.heard || text), { maxTokens: 500, validate: (j) => U.normalize(j, 'owner') });
-      const oi: Understood<OwnerIntent> = U.toOwnerIntent(r.value, text);
+      const oi: Understood<OwnerIntent> = U.reconcileOwner(state, U.toOwnerIntent(r.value, text), rules, text);
       oi.provider = r.provider; oi.ms = r.ms; oi.u = r.value;
       return oi;
     } catch (e) { return rules; }

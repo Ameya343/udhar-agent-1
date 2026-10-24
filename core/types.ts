@@ -20,6 +20,8 @@ export interface Shop {
   city?: string;
   defaultDays: number;
   tone?: string;
+  /** one entry above this many rupees is asked about first (default 100000) */
+  maxEntry?: number;
 }
 
 /** One bill / list / order line: "Cheeni 2 kilo = ₹90". */
@@ -84,6 +86,10 @@ export interface Customer {
   disputed?: boolean;
   vouch?: Vouch;
   limit?: number;
+  /** short names the owner confirmed for this khata ("Ramesh" for Ramesh Gupta) */
+  aliases?: string[];
+  /** the due date for which the owner was told the three reminders are done (KAN-89) */
+  handedOff?: IsoDate | null;
   limitSince?: IsoDate;
   limitCap?: number;
   payday?: number;
@@ -134,6 +140,8 @@ export interface Txn {
   custOk?: IsoDate;
   custAuto?: boolean;
   custWrong?: IsoDate;
+  /** "Ramesh ka udhaar maaf": a write-off, not money received */
+  writeOff?: boolean;
 }
 
 export interface Message {
@@ -283,6 +291,8 @@ export interface OwnerAsk {
   orderIds?: string[];
   orderId?: string;
   custId?: string;
+  /** already shown once under another reply */
+  reshown?: boolean;
 }
 
 export interface Consent {
@@ -346,7 +356,7 @@ export interface State {
   ownerAsks?: OwnerAsk[];
   parkedAsks?: OwnerAsk[];
   consents?: Record<string, Consent>;
-  lastWrite?: { key: string; ts: number };
+  lastWrite?: { key: string; ts: number; day?: IsoDate };
   statementFor?: string;
   // set by the server
   ownerPhone?: string;
@@ -354,6 +364,8 @@ export interface State {
   waLastIn?: Record<string, number>;
   waAsked?: string;
   paySecret?: string;
+  /** "sabko kal yaad dila dena": the day the owner asked for reminders to everyone */
+  remindAllOn?: IsoDate;
 }
 
 // ------------------------------------------------------------------ intents
@@ -417,6 +429,20 @@ export interface OwnerIntent {
   counter?: { total: number | null; heard: string };
   list?: { total: number | null; sum?: number };
   edit?: { txnId: string; op: string };
+  /** a huge amount the owner already confirmed */
+  bigOk?: boolean;
+  /** "500 diye the kal": the day the money came */
+  paidOn?: IsoDate;
+  /** "udhaar maaf": a write-off */
+  writeOff?: boolean;
+  /** "10% kam karo" */
+  percent?: number;
+  /** the amount as said, when it had paise and was rounded to whole rupees (KAN-91) */
+  roundedFrom?: number;
+  /** never itemized into bill lines (promises, questions, notes) */
+  noBill?: boolean;
+  /** the digits of a phone number that is not 10 digits */
+  badPhone?: string;
   // the model's extras (core/understand.ts toOwnerIntent, server/brain.ts)
   llmIntent?: string;
   lang?: string | null;
@@ -430,6 +456,8 @@ export interface OwnerIntent {
 
 /** "Sharma ji ka 340 nahi 430 tha", "Sharma ji ki entry cancel", "nahi 340 hi tha". */
 export interface FixIntent {
+  /** the owner already said haan: void without asking again */
+  sure?: boolean;
   intent: 'fix';
   name?: string | null;
   nameKey?: string | null;

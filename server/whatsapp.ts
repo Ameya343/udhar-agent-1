@@ -58,7 +58,7 @@ function createWhatsapp(o: WhatsappOpts) {
   const elevenBase = (env.ELEVENLABS_API_BASE || 'https://api.elevenlabs.io').replace(/\/+$/, '');
   // the voice-note counters are added below only when they apply
   const stats: { provider: string; enabled: boolean; sending: boolean; stt: boolean; sttProvider: string | null; received: number; sent: number; failed: number; lastError: string | null | undefined;
-    voiceNotes?: boolean; voiceSent?: number; voiceFailed?: number } = {
+    voiceNotes?: boolean; voiceSent?: number; voiceFailed?: number; ignored?: number } = {
     provider: 'web', enabled: !!(owner && web), sending: !!web,
     stt: !!sttProvider, sttProvider, received: 0, sent: 0, failed: 0, lastError: null
   };
@@ -244,6 +244,8 @@ function createWhatsapp(o: WhatsappOpts) {
     stats.received++;
     const from = phone10(msg.from), fromTo = digits(msg.from);
     if (!from || !stats.enabled) return;
+    // "0000000000" and other non-mobile senders never get a khata or a guest entry (KAN-91)
+    if (from !== owner && !/^[6-9]\d{9}$/.test(from)) { stats.ignored = (stats.ignored || 0) + 1; return; }
     const params = { From: fromTo, ProfileName: msg.name };
     let text = String(msg.text || '').trim().slice(0, 500);
     const audio = msg.audio || null;
@@ -324,7 +326,7 @@ function createWhatsapp(o: WhatsappOpts) {
     const c = m && state.customers.find((x) => x.id === m[1]);
     if (!c || !sameString(m![2], payToken(state, c.id))) return null;
     const bal = Math.max(0, Math.round(C.balance(state, c.id)));
-    return page(state.shop.name, '<h1>' + esc(state.shop.name) + '</h1><p>' + esc(c.name) + ' ji, aapka baaki</p><div class="amt">' + esc(C.rupees(bal)) + '</div>' +
+    return page(state.shop.name, '<h1>' + esc(state.shop.name) + '</h1><p>' + esc(/\b(ji|bhai|bhau|didi|aunty|uncle|sahab|saheb|madam|mausi|chacha|tai|sir|kaka|kaku|mama|seth)$/i.test(c.name.trim()) ? c.name.trim() : c.name.trim() + ' ji') + ', aapka baaki</p><div class="amt">' + esc(C.rupees(bal)) + '</div>' +
       (bal > 0 && state.shop.upiId ? '<a class="btn" href="' + esc(C.upiLink(state, c, bal)) + '">UPI app se dein</a>' : '') +
       '<p class="note">Cash dena ho toh dukaan par de dijiye aur WhatsApp par likhiye "cash de diya". Dono barabar hain.</p>');
   }

@@ -132,9 +132,22 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
     get lastError() { return llm.stats.lastError; }, get llmCalls() { return llm.stats.calls; }, get llmFallbacks() { return llm.stats.fallbacks; }
   };
 
-  function snapshot(extra?: Snapshot): Snapshot {
+  // What the page gets. The pay-link secret never leaves the server; on a live shop a public visitor also sees
+  // customers' and wholesalers' numbers masked and no UPI ids (KAN-43).
+  function publicState(full: boolean): State {
+    const { paySecret, ...rest } = state as State & { paySecret?: string };
+    void paySecret;
+    if (full) return rest as State;
+    // a visitor without the owner's key sees the shop, never who owes what (KAN-43): no names, balances, entries or chats
+    const out: any = Object.assign({}, rest, { customers: [], txns: [], messages: [], log: [], pending: null, cashClaims: [], seenUpiRefs: [], lastAction: null, locked: true });
+    for (const k of ['wholesalers', 'suppliers', 'supplies', 'supplierPays', 'wsOrders', 'ownerAsks', 'parkedAsks', 'orders']) if (Array.isArray(out[k])) out[k] = [];
+    for (const k of ['consents', 'ownerPhone', 'waLastIn', 'waAsked', 'statementFor', 'lastWrite']) delete out[k];
+    return out;
+  }
+  // full = the owner (local or admin key), or any visitor of a demo shop; /api/act only answers those
+  function snapshot(extra?: Snapshot, full = true): Snapshot {
     return Object.assign({
-      state, dashboard: C.dashboard(state, 30), shopId,
+      state: publicState(full), dashboard: full ? C.dashboard(state, 30) : C.dashboard(publicState(false), 30), shopId, locked: !full,
       engine: { llm: engine.llm, model: engine.model, lastError: engine.lastError, whatsapp: wa.stats.enabled },
       others
     }, extra || {});
@@ -188,24 +201,30 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
   // (it is a public demo); this only stops one visitor from hammering the shop. Local calls (no proxy) are not limited.
   const limits: Record<string, number[]> = { '/api/act': [+env.ACT_LIMIT_PER_MIN! || 30, 60e3] };
   const hits = new Map<string, number[]>();
-  const LOCKED = new Set(['reset', 'nextDay', 'closeDay']);
   const local = (req: http.IncomingMessage) => !req.headers['x-forwarded-for'] && /^(::1|127\.|::ffff:127\.)/.test(req.socket.remoteAddress || '');
   const sameKey = (a: unknown, b: unknown) => { const x = Buffer.from(String(a || '')), y = Buffer.from(String(b)); return x.length === y.length && (require('crypto') as typeof import('crypto')).timingSafeEqual(x, y); };
+  const live = env.REAL_CLOCK === '1';
+  const isOwner = (req: http.IncomingMessage) => local(req) || !!(env.ADMIN_KEY && sameKey(req.headers['x-admin-key'], env.ADMIN_KEY));
   function limited(req: http.IncomingMessage, route: string) {
-    const fwd = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    // the rightmost x-forwarded-for hop is the one the hosting proxy added; the ones left of it are whatever the client sent (KAN-46)
+    const hops = String(req.headers['x-forwarded-for'] || '').split(',').map((x) => x.trim()).filter(Boolean);
+    const fwd = hops[hops.length - 1] || '';
     const ip = fwd || req.socket.remoteAddress || '';
     if (!fwd && /^(::1|127\.|::ffff:127\.)/.test(ip)) return false;
     const [max, windowMs] = limits[route], key = route + ' ' + ip, now = Date.now();
     const recent = (hits.get(key) || []).filter((t) => now - t < windowMs);
     if (recent.length >= max) { hits.set(key, recent); return true; }
     recent.push(now); hits.set(key, recent);
-    if (hits.size > 5000) hits.clear();
+    if (hits.size > 5000) { // drop expired visitors only, so many fake addresses cannot reset everyone's budget
+      for (const [k, ts] of hits) if (!ts.some((t) => now - t < windowMs)) hits.delete(k);
+    }
     return false;
   }
 
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url!, 'http://x');
+      if (req.method === 'HEAD' && (url.pathname === '/' || url.pathname === '/healthz')) { res.writeHead(200, { 'cache-control': 'no-store' }); return res.end(); }
       if (req.method === 'POST' && limits[url.pathname] && limited(req, url.pathname)) return send(res, 429, { error: 'too many requests, try again in a minute' });
       if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) return send(res, 200, pageHtml(), 'text/html; charset=utf-8');
       if (req.method === 'GET' && url.pathname === '/favicon.ico') { res.writeHead(204); return res.end(); }
@@ -221,28 +240,34 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
         return send(res, 200, linkPage(web, state), 'text/html; charset=utf-8');
       }
       if (req.method === 'GET' && url.pathname.startsWith('/pay/')) {
-        const html = wa.payPage(state, decodeURIComponent(url.pathname.slice(5)));
-        save(); // keeps the pay-link secret once made
+        let ref = '';
+        try { ref = decodeURIComponent(url.pathname.slice(5)); } catch (e) { return send(res, 404, { error: 'not found' }); }
+        const hadSecret = !!state.paySecret;
+        const html = wa.payPage(state, ref);
+        if (!hadSecret && state.paySecret) save(); // keeps the pay-link secret once made
         return html ? send(res, 200, html, 'text/html; charset=utf-8') : send(res, 404, { error: 'not found' });
       }
       if (req.method === 'GET' && url.pathname === '/join') {
         const html = wa.joinPage(state);
         return html ? send(res, 200, html, 'text/html; charset=utf-8') : send(res, 404, { error: 'not found' });
       }
-      if (req.method === 'GET' && url.pathname === '/api/state') return send(res, 200, snapshot());
+      if (req.method === 'GET' && url.pathname === '/api/state') return send(res, 200, snapshot(undefined, !live || isOwner(req)));
       if (req.method === 'POST' && url.pathname === '/api/act') {
         if (!/application\/json/.test(req.headers['content-type'] || '')) return send(res, 415, { error: 'send JSON' });
         if (+req.headers['content-length']! > MAX_BODY) { res.setHeader('connection', 'close'); return send(res, 413, { error: 'body too large' }); }
         let body;
         try { body = JSON.parse(await readBody(req) || '{}'); } catch (e: any) { return send(res, e.code === 413 ? 413 : 400, { error: e.code === 413 ? 'body too large' : 'bad JSON' }); }
-        const action = String(body.action || '');
-        // a live shop's khata and clock belong to the shop: a visitor on the public link can try everything else,
-        // but cannot wipe the khata or move its day
-        if (LOCKED.has(action) && env.REAL_CLOCK === '1' && !local(req) && !(env.ADMIN_KEY && sameKey(req.headers['x-admin-key'], env.ADMIN_KEY)))
-          return send(res, 403, { error: 'locked', message: 'Yeh asli dukaan ka khata hai: "' + (action === 'reset' ? 'Demo dobara shuru' : action === 'nextDay' ? 'Agle din' : 'Dukaan band') + '" yahan band hai. Baaki sab aazmaiye 🙏' });
+        if (!body || typeof body !== 'object' || Array.isArray(body)) return send(res, 400, { error: 'send a JSON object' });
+        const action = String(typeof body.action === 'string' ? body.action : '');
+        const args = body.args && typeof body.args === 'object' && !Array.isArray(body.args) ? body.args : {};
+        if ('text' in args && typeof args.text !== 'string') return send(res, 400, { error: 'text must be a string' });
+        // a live shop's khata belongs to the shop: the public page is view-only, and the owner and customers act on
+        // WhatsApp, so nobody on the link can write udhaar, approve cash, give consent or move the day (KAN-44)
+        if (live && !isOwner(req))
+          return send(res, 403, { error: 'locked', message: 'Yeh asli dukaan ka khata hai: yahan sirf dekh sakte hain. Entry, reminder aur baaki kaam WhatsApp par hote hain 🙏' });
         const out = await serial(async () => {
           const from = state.messages.length, before = state;
-          const r = await act(action, body.args || {});
+          const r = await act(action, args);
           // customers on WhatsApp get what the owner did on the web page; the owner already sees it here
           if (state === before) { wa.deliver(state, from, null, { skipOwner: true }); save(); }
           return r;

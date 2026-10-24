@@ -37,7 +37,8 @@ test('fix with unknown person or missing entry asks and changes nothing', () => 
 });
 test('named undo touches only that person; bare undo says whose', () => {
   const s = shop();
-  assert.match(say(s, 'Sharma ji ki entry cancel'), /Hata diya: Sharma ji ka ₹340/);
+  assert.match(say(s, 'Sharma ji ki entry cancel'), /Sharma ji ka ₹340.*hataun\?/); // KAN-62: asked first
+  assert.match(say(s, 'haan'), /Hata diya: Sharma ji ka ₹340/);
   assert.deepStrictEqual(live(s, 'Ramesh').map((t) => t.amount), [500]);
   assert.match(say(s, 'galti ho gayi, last wala cancel'), /Hata diya: Ramesh ka ₹500/);
 });

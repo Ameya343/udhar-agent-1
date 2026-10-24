@@ -19,7 +19,7 @@ export type ChatMessage = { role: string; content: string };
 export interface ChatOpts<T = unknown> { timeoutMs?: number; maxTokens?: number; model?: string; json?: boolean; validate?: (j: any) => T }
 export interface ChatResult<T = unknown> { value: T; provider: string; model: string; ms: number }
 interface ProviderStats { calls: number; ok: number; failed: number; lastError: string | null; lastMs: number | null }
-interface Provider { name: string; url: string; model: string | null; key: () => string; timeoutMs: number; stats?: ProviderStats }
+interface Provider { name: string; url: string; model: string | null; key: () => string; timeoutMs: number; stats?: ProviderStats; down?: number; skipUntil?: number }
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; signal: AbortSignal; body: string }) => Promise<{ ok: boolean; status: number; json(): Promise<any> }>;
 export interface LlmOpts { env?: Env; fetch?: FetchLike }
 export type Llm = ReturnType<typeof createLlm>;
@@ -58,6 +58,9 @@ function createLlm(opts: LlmOpts) {
     providers.push({ name: 'router', url: trim(env.AGENT37_LLM_PROXY_URL), model: (env.LLM_BASE_URL ? env.ROUTER_MODEL : env.LLM_MODEL) || null, key: () => env.AGENT37_MANAGED_TOKEN || '', timeoutMs: +env.LLM_TIMEOUT_MS! || 8000 });
   }
   for (const p of providers) p.stats = { calls: 0, ok: 0, failed: 0, lastError: null, lastMs: null };
+  // circuit breaker (KAN-75): a provider that timed out once, or failed twice in a row, is skipped for COOLDOWN_MS, so a
+  // dead endpoint costs the shop one timeout, not one per message; after the cooldown one message tries it again
+  const COOLDOWN_MS = +env.LLM_COOLDOWN_MS! || 60000;
   const stats: { calls: number; fallbacks: number; lastProvider: string | null; lastError: string | null } = { calls: 0, fallbacks: 0, lastProvider: null, lastError: null };
 
   async function callOne<T>(p: Provider, messages: ChatMessage[], o: ChatOpts<T>): Promise<ChatResult<T>> {
@@ -76,12 +79,15 @@ function createLlm(opts: LlmOpts) {
       if (!res.ok) throw new Error('LLM HTTP ' + res.status);
       const j = await res.json();
       const content = (((j.choices || [])[0] || {}).message || {}).content || '';
-      const value = o.validate ? o.validate(extractJson(content)) : extractJson(content);
-      p.stats!.ok++; p.stats!.lastError = null; p.stats!.lastMs = now() - t0;
+      let value: any;
+      try { value = o.validate ? o.validate(extractJson(content)) : extractJson(content); } catch (e: any) { throw Object.assign(e, { invalid: true }); }
+      p.stats!.ok++; p.stats!.lastError = null; p.stats!.lastMs = now() - t0; p.down = 0;
       return { value, provider: p.name, model: j.model || p.model || 'default', ms: now() - t0 };
     } catch (e: any) { // anything thrown: fetch, JSON or the validator
       p.stats!.failed++; p.stats!.lastMs = now() - t0;
       p.stats!.lastError = e.name === 'AbortError' ? 'LLM timeout' : String(e.message || e).slice(0, 200);
+      // a reply that came back but failed validation means the endpoint is alive; only network, HTTP and timeouts count
+      if (!e.invalid) { p.down = (p.down || 0) + (e.name === 'AbortError' ? 2 : 1); if (p.down >= 2) p.skipUntil = now() + COOLDOWN_MS; }
       throw Object.assign(new Error(p.stats!.lastError), { provider: p.name });
     } finally { clearTimeout(timer); }
   }
@@ -92,8 +98,8 @@ function createLlm(opts: LlmOpts) {
    */
   async function chatJson<T = any>(messages: ChatMessage[], o?: ChatOpts<T>): Promise<ChatResult<T>> {
     o = o || {};
-    const list = providers;
-    if (!list.length) throw new Error('no LLM configured');
+    if (!providers.length) throw new Error('no LLM configured');
+    const list = providers.filter((p) => !(p.skipUntil && now() < p.skipUntil));
     stats.calls++;
     let last: Error | null = null;
     for (const p of list) {
@@ -115,7 +121,7 @@ function createLlm(opts: LlmOpts) {
     describe: () => providers.map((p) => p.name + ':' + (p.model || 'default')).join(' -> ') || 'none',
     health: () => ({
       chain: providers.map((p) => p.name).concat('rules'), lastProvider: stats.lastProvider, lastError: stats.lastError, calls: stats.calls, fallbacks: stats.fallbacks,
-      providers: Object.fromEntries(providers.map((p) => [p.name, { model: p.model || 'default', calls: p.stats!.calls, ok: p.stats!.ok, failed: p.stats!.failed, lastMs: p.stats!.lastMs, lastError: p.stats!.lastError }]))
+      providers: Object.fromEntries(providers.map((p) => [p.name, { model: p.model || 'default', calls: p.stats!.calls, ok: p.stats!.ok, failed: p.stats!.failed, lastMs: p.stats!.lastMs, lastError: p.stats!.lastError, skipped: !!(p.skipUntil && now() < p.skipUntil) }]))
     })
   };
 }
