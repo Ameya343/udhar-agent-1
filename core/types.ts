@@ -371,6 +371,8 @@ export interface State {
   parkedAsks?: OwnerAsk[];
   consents?: Record<string, Consent>;
   lastWrite?: { key: string; ts: number; day?: IsoDate };
+  /** the owner's last spoken rate list ("chawal 30 kilo, chips 20 ..."), billed to a customer named within 10 minutes */
+  rateSay?: { ts: number; lines: Line[] };
   statementFor?: string;
   // set by the server
   ownerPhone?: string;

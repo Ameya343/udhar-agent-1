@@ -698,6 +698,120 @@ function factory() {
   const rateList = (state: State): (Price & { key: string })[] => Object.keys(prices(state)).map((k) => Object.assign({ key: k }, prices(state)[k])).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.name < b.name ? -1 : 1));
 
 
+  // ------------------------------------------- spoken rate list: "chawal ₹30 kilo, tuar daal ₹25 kilo, 20 wale chips teen"
+  // The owner says the shop's rates once. Every item + price is saved as the default rate. When the same message (or one
+  // within 10 minutes: "yeh rate Sarthak ko bhej do") names a customer and asks for the bill, the bill is made from these
+  // rates (one of each unless a count was said) and goes to the customer through the usual list entry (Haan / Galat).
+  const RATE_SAY_MS = 10 * 60 * 1000;
+  const RS_MONEY = /^(rs|rup[a-z]*|inr)$/;
+  const RS_EACH = /^(vala|vale|vali|ka|ke|ki)$/;
+  const RS_UNIT: Record<string, string> = Object.assign(Object.create(null), UNIT_OF, { litar: 'l', litr: 'l', liter: 'l', leter: 'l', kilogram: 'kg', bottle: 'bottle', botal: 'bottle', packet: 'pkt', piece: 'pc' });
+  const RS_CMD = new Set(['rate', 'ret', 'reet', 'dam', 'bhav', 'bill', 'bil', 'total', 'tutal', 'pura', 'pora', 'sara', 'bhej', 'bhejo', 'bhejna', 'bhejdo', 'bata', 'batao', 'batana',
+    'bana', 'banao', 'banakar', 'banake', 'bana', 'send', 'de', 'do', 'dedo', 'dena', 'dijiye', 'kar', 'karo', 'karke', 'ko', 'uska', 'usaka', 'usko', 'usako', 'unko', 'unako', 'inko', 'isko', 'use',
+    'yah', 'yeh', 'ye', 'ya', 'is', 'in', 'un', 'us', 'aur', 'bhi', 'ka', 'ki', 'ke', 'sab', 'sabhi', 'ek', 'list', 'hisab'].map(normWord));
+  const RS_BILL = /\s(bill|bil|bhej|bhejo|bhejna|bhejdo|send|bata|batao|batana|de do|dedo|de dena|de dijiye)\s/;
+  /** Each clause that is one item with one price: { lines }, plus the clauses that are not (the command words). */
+  function rateSayParse(text: string): { lines: Line[]; rest: string[]; marked: boolean } {
+    const segs = String(text).split(/[,;।\n!?|]+|(?<!\d)\.(?!\d)|\s(?:और|aur|and)\s/i).map((x) => String(cleanTranscript(x)).replace(/[|]/g, ' ').trim()).filter(Boolean);
+    const lines: Line[] = [], rest: string[] = [];
+    let marked = false;
+    for (const seg of segs) {
+      const tk = tokenize(seg), n = tk.norm, d = tk.display;
+      const nums: { v: number; i: number; price?: boolean; unitAfter?: boolean }[] = [], words: number[] = [];
+      let unit: string | null = null, bad = false;
+      for (let i = 0; i < n.length; i++) {
+        const w = n[i];
+        let v: number | null = isNum(w) ? parseFloat(w) : w !== 'do' && w !== 'ek' && VOICE_BASE[w] != null ? VOICE_BASE[w] : null;
+        if (v != null) {
+          let j = i;
+          if (MULT[n[i + 1]]) { v *= MULT[n[i + 1]]; j++; }
+          const x = { v, i, price: n[i - 1] === 'rs' || RS_MONEY.test(n[j + 1] || '') && n[j + 1] !== 'rs' || RS_EACH.test(n[j + 1] || '') && !RS_UNIT[n[j + 2] || ''] && !!n[j + 2], unitAfter: !!RS_UNIT[n[j + 1] || ''] };
+          if (x.price) marked = true;
+          nums.push(x); i = j; continue;
+        }
+        if (RS_UNIT[w]) { unit = RS_UNIT[w]; continue; }
+        if (w === 'rs' || RS_MONEY.test(w) || RS_EACH.test(w) || w === 'per' || w === 'ek') continue;
+        if (RS_CMD.has(w)) { bad = true; continue; }
+        if (isItemWord(w) || /^[a-z]{2,}-[a-z]{2,}$/.test(w)) words.push(i);
+      }
+      if (bad || !words.length || !nums.length || nums.length > 2) { rest.push(seg); continue; }
+      // "5 box bread" is how many (an order), never ₹5: an unmarked number before a unit is a quantity
+      const price = nums.find((x) => x.price) || nums.find((x) => !x.unitAfter) || null;
+      const other = nums.find((x) => x !== price) || null;
+      const qty = other ? other.v : null;
+      if (!price || !(price.v >= 1)) { rest.push(seg); continue; }
+      const [base, f] = baseOf(unit);
+      const rate = unit && qty != null && other!.unitAfter ? Math.round((price.v / (qty * f)) * 100) / 100 : unit ? price.v / f : price.v;
+      lines.push({ name: words.map((k) => d[k].toLowerCase()).join(' '), key: words.map((k) => n[k].replace(/-/g, '')).join(' '), qty, unit: base || null, price: rate });
+    }
+    return { lines, rest, marked };
+  }
+  /** The customers named in the command words ("sarasak ko bata do" = Sarthak), never a pronoun or an item. */
+  function rateSayWho(state: State, rest: string[]): Customer[] {
+    const found: Customer[] = [];
+    for (const seg of rest) {
+      const tk = tokenize(seg);
+      for (let i = 0; i < tk.norm.length; i++) {
+        const w = tk.norm[i];
+        if (w.length < 3 || RS_CMD.has(w) || STOP.has(w) || HONORIFICS.has(w) || NOT_ITEM.has(w) || RS_UNIT[w] || RS_MONEY.test(w) || prices(state)[w]) continue;
+        const two = tk.norm[i + 1] && HONORIFICS.has(tk.norm[i + 1]) ? findCustomers(state, w + ' ' + tk.norm[i + 1]).filter((c) => !c.removed) : [];
+        for (const c of (two.length ? two : findCustomers(state, w).filter((c) => !c.removed))) if (found.indexOf(c) < 0) found.push(c);
+      }
+    }
+    return found;
+  }
+  function rateSayStep(state: State, text: string, opts: OwnerOpts): OwnerResult | null {
+    if (LIST_HEADS.some((rx) => rx.test(cleanTranscript(text).replace(LIST_LEAD, '').trim()))) return null;
+    const all = tokenize(text).text;
+    if (RX.strongPay.test(all) || RX.credit.test(all.replace(/\s(likh|likho|likh do|likhdo)\s/g, ' ')) && !/\s(rate|ret|dam|bhav)\s/.test(all)) return null;
+    if (/\s(mang|mangva|mangvao|mangvana|mangao|mangana|order|ordar|stock|stok|mal|maal|wholesaler|supplier)/.test(all)) return null; // stock to order, not shop rates
+    const p = rateSayParse(text);
+    const asksBill = RS_BILL.test(all) && /\s(rate|ret|reet|dam|bhav|bill|bil|list)\s/.test(all);
+    const out: Message[] = [];
+    const reply = (t: string, kind: string) => emit(state, out, 'owner', t, { kind });
+    let lines: Line[];
+    const rateWord = /\s(rate|ret|reet|dam|bhav)\s/.test(all);
+    // "dal 3 kilo 360 ... Deshmukh kaka": a sale with quantities and a person is an udhaar entry, not a rate list
+    if (!asksBill && tokenize(text).norm.some((w) => w.length >= 3 && !HONORIFICS.has(w) && isCustomerWord(state, w))) return null;
+    if (!rateWord && p.lines.some((l) => l.qty != null && !!l.unit)) return null;
+    if (p.lines.length >= 2 && (p.marked || rateWord)) {
+      if (p.lines.some((l) => isCustomerWord(state, l.key))) return null; // "Verma 250, Pappu 120": people, not rates
+      lines = p.lines;
+      for (const l of lines) {
+        // "chawal tees" with no unit keeps the unit chawal is sold by (₹30 a kilo), and the name the shop already uses
+        const old = prices(state)[l.key!];
+        if (old) { l.name = old.name; if (!l.unit && old.unit) l.unit = old.unit; }
+        prices(state)[l.key!] = { name: l.name, rate: l.price!, unit: l.unit || '', date: state.today };
+      }
+      state.rateSay = { ts: Date.now(), lines: lines.map((l) => Object.assign({}, l)) };
+    } else if (!p.lines.length && asksBill && state.rateSay && Date.now() - state.rateSay.ts < RATE_SAY_MS) {
+      lines = state.rateSay.lines.map((l) => Object.assign({}, l));
+    } else return null;
+    const saved = lines.map((l) => itemName(l.name) + ' ' + rateText(l.price!, l.unit)).join(', ');
+    const who = asksBill ? rateSayWho(state, p.rest) : [];
+    const fresh = p.lines.length > 0;
+    if (!who.length) {
+      reply((fresh ? '📝 Rate yaad kar liye: ' + saved + '.' : '🤔 Kisko bill bhejna hai? Naam ke saath boliye, jaise "yeh rate Sharma ji ko bhej do". Rate: ' + saved + '.') +
+        (fresh && asksBill ? '\nKisko bill bhejna hai? Naam boliye, jaise "yeh rate Sharma ji ko bhej do" (10 minute tak).' : ''), 'rate-say');
+      return { intent: { intent: 'rate-say' }, messages: out };
+    }
+    if (who.length > 1) {
+      reply((fresh ? '📝 Rate yaad kar liye: ' + saved + '.\n' : '') + '🤔 Kisko bill bhejna hai? ' + who.map((c, i) => (i + 1) + '. ' + c.name).join(', ') + '. Poore naam ke saath boliye, jaise "yeh rate ' + who[0].name + ' ko bhej do". (Abhi kisi ko kuch nahi bheja.)', 'rate-say');
+      return { intent: { intent: 'rate-say' }, messages: out };
+    }
+    const c = who[0];
+    const bill: Line[] = lines.map((l) => {
+      const q = l.qty != null ? l.qty : 1;
+      return { name: l.name, key: l.key, qty: l.unit || q !== 1 ? q : null, unit: l.unit, price: Math.round(l.price! * q), from: 'memory', rate: l.price!, rateUnit: l.unit || '' } as Line;
+    });
+    const li = { intent: 'credit', list: { total: null }, lines: bill, name: c.name, nameKey: c.key, amount: null, items: '', dueDate: null, raw: text, parser: 'rules', source: opts.source || 'text' } as unknown as ListIntent;
+    if (fresh) reply('📝 Rate yaad kar liye: ' + saved + '.', 'rate-say');
+    const n0 = state.txns.length;
+    const sent = listStep(state, li, out);
+    if (state.txns.length > n0) reply('🧾 ' + c.name + ' ka bill: ' + rupees(bill.reduce((s, l) => s + l.price!, 0)) + ' (' + bill.length + ' cheezein), ' + (c.phone && !c.optedOut ? c.name + ' ko bhej diya.' : 'khate mein likha.'), 'rate-say');
+    return { intent: { intent: 'rate-say', name: c.name } as HandledIntent, messages: dedupe(sent.concat(out.filter((m) => sent.indexOf(m) < 0))) };
+  }
+
   // ------------------------------------------- counter bill: the shop's own talk becomes the bill
   // At the counter the owner calls items out to a helper ("Raju, do kilo cheeni la, ek tel bhi nikal") and someone
   // says the total aloud at the end ("kitna hua? 310"). The owner holds the WhatsApp mic through that, and the agent
@@ -2601,6 +2715,12 @@ function factory() {
     const yn = shortAnswer(text) || (first && first.type === 'ws-order' && /^\s*(cancel|cancel karo|cancel kar do|rehne do|rahne do|mat bhejo|mat bhejna|ruko|ruk jao)\s*[.!]*\s*$/i.test(String(text)) ? 'no' : null) ||
       (first && first.type === 'ws-order' && /^\s*(haan\s+)?(bhej do|bhej dijiye|bhej dena|bhej de|bhejo|bhejiye|send|send karo|send kar do|send it|order karo|order kar do|order bhejo|kar do|chalega)\s*[.!]*\s*$/i.test(String(text)) ? 'yes' : null);
     if (yn && ownerAsks(state).length && !state.pending) return { intent: { intent: 'owner-ask' }, messages: answerOwnerAsk(state, yn === 'yes') };
+    // "chawal ₹30 kilo, chips 20 ... ye rate Sarthak ko bhej do": saved as the shop's rates, billed to the customer named.
+    // Checked before the AI's route: the AI may call such a note a list, an udhaar or a reminder, never a fix or a removal.
+    if (!state.pending && ['undo', 'remove_customer', 'restore_customer', 'set_phone', 'add_customer', 'jama', 'balance'].indexOf(opts.intent && opts.intent.parser === 'llm' ? opts.intent.llmIntent || '' : '') < 0) {
+      const rs = rateSayStep(state, text, opts);
+      if (rs) { pruneAsks(state); askAlong(state, rs.messages); return rs; }
+    }
     // the AI's clean rewrite of a voice note ("canon") gets the same rule parsers as the words themselves
     const canon0 = opts.intent && opts.intent.canon && opts.intent.canon !== text ? opts.intent.canon : null;
     // ...but only when the owner's own words carry the same command: the AI's rewrite never removes a customer, edits a

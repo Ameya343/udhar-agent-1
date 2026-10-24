@@ -304,7 +304,6 @@ After the AI, the **safety rules always run**. Replies are written in Hinglish a
 | Unit and flow tests (`npm test`) | **319 tests**: 302 pass, 0 fail, 17 skipped | Parser, safety rules, WhatsApp flows, voice, PostgreSQL store, dashboard, stress cases. Tests that need a live database are skipped without one |
 | Stress test | about **7,000** generated messages, **0 open bugs** (every bug found was fixed) | **Rules path only** |
 | Five rounds of manual stress testing | every finding logged in Jira (KAN-15 to KAN-112), fixed with a regression test in `test/st3.test.js`, `test/st4.test.js`, `test/st5.test.js` and others | Rules path, plus the AI path with a mocked model |
-| Live test run (`/test-run` page, or `node test/live/run.js --fails`) | **900** hand-checked Hinglish cases in 15 groups, run live in the browser on a throwaway demo shop. On main 0ab6db0: **886 pass, 14 fail** (two open bugs: "Rs.300" with no space is not read; "Pappu ka bhai" is written on Pappu's khata without asking). Failures are shown with input, expected and actual | **Rules path only**, no model is called. Expected results are written by hand in `test/live/cases.js` |
 | Understanding eval (`scripts/eval-llm.ts`, seed 7) | **1,500** messages, **93.6% correct, 0 wrong entries**; the other 6.4% were questions back (unknown names), not mistakes | **Rules only** |
 | AI path (model + rules) | **Not measured yet.** We will publish it only once we have real numbers | - |
 
