@@ -218,7 +218,7 @@ test('a customer with nothing due who asks for a QR is told so, with no link', (
 });
 
 test('validUpi: a shop UPI ID is name@bank, cleaned; anything else is refused', () => {
-  for (const [i, o] of [['guptakirana@okaxis', 'guptakirana@okaxis'], [' Gupta.Kirana@OKSBI ', 'gupta.kirana@oksbi'], ['9812345678@ybl', '9812345678@ybl'], ['ramesh_k-1@paytm', 'ramesh_k-1@paytm']]) assert.equal(C.validUpi(i), o, i);
+  for (const [i, o] of [['guptastore@okaxis', 'guptastore@okaxis'], [' Gupta.Kirana@OKSBI ', 'gupta.kirana@oksbi'], ['9812345678@ybl', '9812345678@ybl'], ['ramesh_k-1@paytm', 'ramesh_k-1@paytm']]) assert.equal(C.validUpi(i), o, i);
   for (const b of ['', 'guptakirana', '@okaxis', 'gupta kirana@okaxis', 'gupta@', 'gupta@ok axis', 'a@b', 'x@1bank', 'upi://pay?pa=x@y', 'gupta@okaxis&am=1']) assert.equal(C.validUpi(b), null, b);
 });
 

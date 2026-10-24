@@ -5203,7 +5203,7 @@ function factory() {
      * Demo/seed UPI IDs that were once shipped in the code. They look real and some belong to strangers (a real
      * customer paid ₹60 to one), so they are never treated as the shop's UPI: no QR, no pay button, cash only.
      */
-    const PLACEHOLDER_UPI = ['guptakirana@upi', 'zafarsastabazaar@upi', 'saikrupakirana@upi', 'balajidairy@upi', 'nayidukaan@upi'];
+    const PLACEHOLDER_UPI = ['guptakirana@upi', 'zafarsastabazaar@upi', 'saikrupakirana@upi', 'balajidairy@upi', 'nayidukaan@upi', 'guptakirana@okaxis', 'ramesh.sharma@okaxis', 'salim.k@okaxis', 'yourname@okaxis'];
     function isPlaceholderUpi(raw) {
         return PLACEHOLDER_UPI.indexOf(String(raw == null ? '' : raw).trim().toLowerCase()) >= 0;
     }
@@ -6397,6 +6397,8 @@ function factory() {
     function answerConfirm(state, p, yes, opts) {
         const out = [];
         const reply = (text, meta) => emit(state, out, 'owner', text, meta);
+        if (p.what === 'upi-claim')
+            return out.concat(confirmCash(state, p.claimId, yes));
         if (!yes) {
             reply('👍 Theek hai, kuch nahi likha, kuch nahi badla.');
             return out;
@@ -7701,6 +7703,18 @@ function factory() {
     // English too: "How much do I owe?" (owe is "ove" once w is read as v), "my dues"
     // typed fast on a phone: "kitns baki hsi", "kitn baaki", "kitnaa"
     const BALANCE_RX = /\s(kitna|kitns|kitn|kitnaa|kitnna|kitana|kitne|kitni|balance|bakaya|hisab|hisaab|list|statement|khata|ove|oved|dues)\s/;
+    /** "hau" is a common phone typo of "hai" ("mera kitna udhaar hau"). */
+    const balanceText = (t) => t.replace(/\shau(?=\s)/g, ' hai');
+    /** A balance question ("kitna udhaar hai/hau", "kitna baaki"), not a payment report. */
+    function isBalanceQ(tok) {
+        const t = balanceText(tok.text);
+        return BALANCE_RX.test(t) && !/\s(diya|diye|kar diya|bhej diya)\s/.test(t);
+    }
+    /** A short bare answer to "udhaar mein likhein? Haan/Nahi": haan/nahi/udhaar/cash/naqad plus at most 2 filler words. */
+    function bareAskReply(text) {
+        const w = tokenize(text).text.trim().split(/\s+/).filter(Boolean);
+        return w.length >= 1 && w.length <= 3 && w.some((x) => /^(haan|han|haa|ha|hn|nahi|nahin|nhi|na|udhar|udhaar|udhari|cash|naqad|nakad|nagad)$/.test(x));
+    }
     /** Strict rule classifier for one customer message (the LLM's fallback). */
     function customerIntentRules(state, c, text) {
         const pre = customerPrefilter(text);
@@ -7708,7 +7722,7 @@ function factory() {
             return pre;
         const tok = tokenize(text);
         const due = extractDue(tok, state.today).due;
-        if (BALANCE_RX.test(tok.text) && !/\s(diya|diye|kar diya|bhej diya)\s/.test(tok.text) && !due)
+        if (isBalanceQ(tok) && !due)
             return { intent: 'balance', parser: 'rules' };
         // "200 de diye the kal": paid yesterday, not a promise for tomorrow
         const paidBefore = /\s(diye|diya|die|dia|kar diya|kar diye|bhej diya|bhej diye|de diye|de diya|pay kiya|jama kiya|jama kiye)\s(the|tha|thi)\s/.test(tok.text);
@@ -7864,7 +7878,7 @@ function factory() {
      * (customerIntentFromLlm); without it the strict rules decide. opts.now: the clock for the per-customer limits.
      */
     /** "QR bhejo" / "200 pay karna hai": the baaki and the shop's UPI. Nothing is written until the payment is confirmed. */
-    function offerPay(state, c, said, out, bad) {
+    function offerPay(state, c, said, out, bad, nowMs) {
         if (bad) {
             emit(state, out, c.id, 'QR 0 se zyada raqam ka hi banta hai 🙏 Kitne ka QR bhejun? Poora ' + rupees(Math.max(0, Math.round(balance(state, c.id)))) + ' ya kam?');
             c.payAsk = Date.now();
@@ -7889,6 +7903,41 @@ function factory() {
             (amt && amt > p.balance ? '\nAapne ' + rupees(amt) + ' likha, baaki sirf ' + rupees(p.balance) + ' hai. Neeche poore ' + rupees(p.balance) + ' ka QR hai. ' + rupees(amt) + ' hi dena ho toh link par chuniye: zyada ' + rupees(amt - p.balance) + ' advance mein jama hoga.' : '') +
             '\n' + (amt && amt < p.balance ? rupees(amt) : 'Poore ' + rupees(p.balance)) + ' ka UPI QR neeche bhej raha hoon. UPI ID: ' + shopUpi(state) +
             '\nPayment milte hi dukaandaar khata update karenge.', { kind: 'pay-offer', amount: p.balance, payAmount: want && amt ? amt : undefined });
+        // numbered replies, not WhatsApp buttons (unreliable on normal WhatsApp); the answer is read in handleCustomerMessage
+        c.paidAsk = { at: nowMs || Date.now(), amount: amt && amt < p.balance ? amt : p.balance };
+        emit(state, out, c.id, PAID_ASK_TEXT, { kind: 'paid-ask', amount: c.paidAsk.amount });
+        return out;
+    }
+    const PAID_ASK_TEXT = 'Payment ho gaya? Reply karein: 1 = ✅ Paid, 2 = ⏳ Abhi nahi';
+    const PAID_ASK_MS = 2 * 60 * 60 * 1000;
+    /** The answer to "Payment ho gaya? 1 / 2": only short, exact replies count, anything else is read as usual. */
+    function paidAnswer(text) {
+        const t = String(text || '').toLowerCase().replace(/[✅⏳.!🙏]/gu, ' ').replace(/\s+/g, ' ').trim();
+        if (/^(1|paid|pay ho gaya|payment ho gaya|ho gaya|ho gya|hogaya|hogya|bhej diya|bhej diye|bhej dia|kar diya|kar diye|done|haan ho gaya|ha ho gaya)( hai| ji)?$/.test(t))
+            return 'paid';
+        if (/^(2|abhi nahi|abhi nahin|abhi nhi|nahi abhi|baad mein|baad me|bad mein|bad me|later|not yet)( ji)?$/.test(t))
+            return 'later';
+        return null;
+    }
+    /** "1" after a QR: a pending UPI claim the owner checks in the bank; nothing is written until the owner says haan. */
+    function answerPaidAsk(state, c, ans, out, nowMs) {
+        const ask = c.paidAsk;
+        delete c.paidAsk;
+        if (ans === 'later') {
+            emit(state, out, c.id, 'Theek hai, jab bhejein tab batayein 🙏', { kind: 'paid-later' });
+            return out;
+        }
+        const open = claims(state).find((k) => k.custId === c.id && k.status === 'pending' && k.method === 'upi' && k.at && nowMs - k.at < CUSTOMER_LIMITS.pay);
+        if (open) {
+            emit(state, out, c.id, 'Dukaandaar check karke confirm karenge 🙏');
+            return out;
+        }
+        const k = { id: nextId(state, 'K'), custId: c.id, amount: ask.amount, date: state.today, status: 'pending', at: nowMs, method: 'upi' };
+        claims(state).push(k);
+        log(state, 'cash', c.name + ' says paid ' + rupees(k.amount) + ' by UPI QR (pending, owner checks)');
+        emit(state, out, c.id, 'Dukaandaar check karke confirm karenge 🙏', { kind: 'upi-noted' });
+        state.pending = { type: 'confirm', what: 'upi-claim', options: [], custId: c.id, claimId: k.id };
+        emit(state, out, 'owner', '💳 ' + c.name + ' ne ' + rupees(k.amount) + ' UPI se bhejne ka bataya. Bank/GPay check karke haan/nahi bolein.', { kind: 'upi-claim', claimId: k.id });
         return out;
     }
     function handleCustomerMessage(state, custId, text, opts) {
@@ -7914,8 +7963,14 @@ function factory() {
         if (askOpen && (bare || /^\s*(poora|pura|full|sab|saara|sara|poore|pure)\b/i.test(String(text)))) {
             delete c.payAsk;
             const n = bare ? +bare[2].replace(/[०-९]/g, (d) => String(d.charCodeAt(0) - 0x966)) : null;
-            return offerPay(state, c, n == null ? null : { amount: n }, out, n != null && n <= 0);
+            return offerPay(state, c, n == null ? null : { amount: n }, out, n != null && n <= 0, nowMs);
         }
+        // the answer to "Payment ho gaya? 1 / 2" right after a QR; with no QR waiting, "1" / "2" mean what they always did
+        if (c.paidAsk && nowMs - c.paidAsk.at >= PAID_ASK_MS)
+            delete c.paidAsk;
+        const pa = c.paidAsk && !c.optedOut ? paidAnswer(text) : null;
+        if (pa)
+            return answerPaidAsk(state, c, pa, out, nowMs);
         // "30 bhejna hai" is ₹30, but "2 maggi bhejna" with a known item stays an order
         if (pn && pn.weak && orderLines(state, text).some((l) => l.from === 'memory' || l.from === 'variant'))
             pn = null;
@@ -7930,7 +7985,7 @@ function factory() {
                 emit(state, out, c.id, 'Kitne ka QR bhejun? Poora ' + rupees(b) + ' ya kam? Raqam likh dijiye, jaise "' + Math.max(1, Math.round(b / 2)) + '".', { kind: 'pay-ask', amount: b });
                 return out;
             }
-            return offerPay(state, c, { amount: pn.amount }, out, !!pn.bad);
+            return offerPay(state, c, { amount: pn.amount }, out, !!pn.bad, nowMs);
         }
         if (['pay_claim', 'abusive', 'opt_out', 'dispute', 'correction'].indexOf(ci.intent) < 0 && wantsToPay(text))
             ci = { intent: 'pay_now', parser: ci.parser };
@@ -7969,7 +8024,9 @@ function factory() {
         else if (llm && ci.relevant === false)
             co = { lines: [] }; // the AI is sure this is not shop talk: no order out of "chahiye"
         const llmReply = llm ? (ci.udhaar || ci.intent === 'confirm_yes' ? 'udhaar' : ci.intent === 'confirm_no' ? 'cash' : null) : null;
-        const reply = asking && (orderReply(text) || llmReply);
+        // a balance question ("mera kitna udhaar hau") is answered as one, never taken as the udhaar answer; only a bare "haan"/"udhaar" still answers the ask
+        const balanceQ = ci.intent === 'balance' || isBalanceQ(tokenize(text));
+        const reply = asking && (!balanceQ || bareAskReply(text)) && (orderReply(text) || llmReply);
         if (reply && !(co.lines.length && (co.add || co.lines.some((l) => l.from === 'memory' || l.from === 'variant' || l.unit))))
             return answerOrder(state, c.id, asking.id, reply === 'udhaar');
         const tok = tokenize(text);
@@ -7988,7 +8045,7 @@ function factory() {
         }
         // "QR bhejo", "200 pay karna hai": the shop's UPI for the amount they choose (on WhatsApp, the pay link to pick it)
         if (ci.intent === 'pay_now')
-            return offerPay(state, c, extractAmount(tok, new Set()), out);
+            return offerPay(state, c, extractAmount(tok, new Set()), out, false, nowMs);
         // "mera udhaar bas 40 hai", "daal nahi liya tha": a dispute or a correction goes to the owner, never a menu
         if (ci.intent === 'dispute' || ci.intent === 'correction')
             return forwardDispute(state, c, text, ci, out, nowMs);
@@ -8104,6 +8161,8 @@ function factory() {
             return n + ' ne ' + k.label + ' ko galat bataya. ✅ = aapki entry sahi hai, ❌ = galti thi, theek karo';
         if (k.type === 'credit')
             return n + ': ' + rupees(k.amount) + ' udhaar? (Galla Mic ne suna)';
+        if (k.method === 'upi')
+            return n + ': ' + rupees(k.amount) + ' UPI (grahak ne bataya, bank check karein)';
         return n + ': ' + rupees(k.amount) + ' cash' + (k.origin === 'galla' ? '? (Galla Mic ne suna' + (k.why ? ', ' + k.why : '') + ')' : ' (grahak ne bataya)');
     }
     /** Owner's one-tap answer to a pending item. ok=true records it; a customer's cash claim marked ❌ becomes a dispute. */
@@ -8133,6 +8192,22 @@ function factory() {
             return out;
         }
         if (ok) {
+            if (k.method === 'upi') {
+                const tx = { id: nextId(state, 'T'), custId: c.id, type: 'payment', amount: k.amount, date: k.date, note: 'UPI QR, customer reported, owner checked', source: 'upi', via: 'customer', matchedBy: 'grahak ne bataya, aapne bank mein check kiya' };
+                state.txns.push(tx);
+                k.status = 'confirmed';
+                k.txnId = tx.id;
+                const bal = balance(state, c.id);
+                if (bal <= 0) {
+                    c.dueDate = null;
+                    c.reminderLevel = 0;
+                }
+                log(state, 'cash', c.name + ' UPI ' + rupees(k.amount) + ' confirmed');
+                emit(state, out, 'owner', '✅ ' + c.name + ' ka ' + rupees(k.amount) + ' UPI jama. ' + (bal > 0 ? 'Baaki: ' + rupees(bal) : 'Khata clear ✅'), { kind: 'cash-done' });
+                if (c.phone)
+                    emit(state, out, c.id, 'Dhanyavaad ' + c.name + ' 🙏 ' + rupees(k.amount) + ' UPI mil gaya, dukaandaar ne confirm kiya.\n' + (bal > 0 ? 'Abhi baaki: ' + rupees(bal) : 'Aapka khata clear hai.') + '\n- ' + state.shop.name, { kind: 'receipt' });
+                return out;
+            }
             const tx = { id: nextId(state, 'T'), custId: c.id, type: 'payment', amount: k.amount, date: k.date, note: k.origin === 'galla' ? (k.heard || '') : 'cash, customer reported, owner confirmed', source: 'cash', via: k.origin === 'galla' ? 'galla' : 'customer', matchedBy: k.origin === 'galla' ? 'Galla Mic, aapne confirm kiya' : 'grahak ne bataya, aapne confirm kiya' };
             state.txns.push(tx);
             k.status = 'confirmed';
@@ -8148,6 +8223,15 @@ function factory() {
                 emit(state, out, c.id, 'Dhanyavaad ' + c.name + ' 🙏 ' + rupees(k.amount) + ' cash mil gaya, dukaandaar ne confirm kiya.\n' + (bal > 0 ? 'Abhi baaki: ' + rupees(bal) : 'Aapka khata clear hai.') + '\n- ' + state.shop.name, { kind: 'receipt' });
         }
         else {
+            if (k.method === 'upi') {
+                // not in the bank yet: no dispute flag, the customer is asked to check (a UPI can take a while)
+                k.status = 'dropped';
+                log(state, 'cash', c.name + ' UPI ' + rupees(k.amount) + ' not found by owner');
+                emit(state, out, 'owner', '👍 Theek hai, ' + c.name + ' ka ' + rupees(k.amount) + ' UPI nahi likha. Baaki ' + rupees(balance(state, c.id)) + ' hi hai.', { kind: 'cash-done' });
+                if (c.phone)
+                    emit(state, out, c.id, c.name + ' 🙏 dukaandaar ko ' + rupees(k.amount) + ' ka UPI abhi nahi dikha. Apne UPI app mein ek baar check kar lijiye, ya dukaan par baat kar lijiye.', { kind: 'dispute' });
+                return out;
+            }
             k.status = 'disputed';
             c.disputed = true;
             log(state, 'cash', c.name + ' cash ' + rupees(k.amount) + ' disputed');

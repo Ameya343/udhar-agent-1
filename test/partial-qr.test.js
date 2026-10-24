@@ -13,7 +13,7 @@ fs.existsSync(path.join(__dirname, '../dist/udhaar-agent-standalone.html')) || r
 
 function owing60() {
   const s = C.freshShop('gupta', TODAY);
-  s.shop.upiId = 'guptakirana@okaxis';
+  s.shop.upiId = 'guptastore@okaxis';
   const c = C.customerFromWhatsapp(s, '919156543102', 'Sarthak').cust;
   delete c.guest;
   C.runAction(s, 'owner', { text: 'sarthak 60 udhaar chaaval' });

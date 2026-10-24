@@ -98,6 +98,8 @@ export interface Customer {
   statementAuto?: boolean;
   /** when the customer was asked "Kitne ka QR bhejun?" (ms); a bare number answers it */
   payAsk?: number;
+  /** A UPI QR went out and "Payment ho gaya? 1 / 2" is waiting: when, and for how much. */
+  paidAsk?: { at: number; amount: number };
   demo?: boolean;
 }
 
@@ -209,6 +211,8 @@ export interface CashClaim {
   txnId?: string | null;
   label?: string;
   at?: number;
+  /** 'upi': the customer said they paid the QR; the owner checks the bank before it is written. */
+  method?: 'upi';
   resolvedOn?: IsoDate;
   items?: string;
   heard?: string;
@@ -330,7 +334,8 @@ export interface Pending {
   options: string[];
   action?: OwnerIntent;
   allowNew?: boolean;
-  what?: 'void' | 'fix' | 'pay' | 'new-cust' | 'loose-cust' | 'repeat';
+  what?: 'void' | 'fix' | 'pay' | 'new-cust' | 'loose-cust' | 'repeat' | 'upi-claim';
+  claimId?: string;
   txnId?: string;
   custId?: string;
   to?: number;
