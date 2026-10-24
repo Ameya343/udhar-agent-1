@@ -1111,7 +1111,7 @@ try { var t = localStorage.getItem('udhaar-theme'); if (t !== 'light' && t !== '
   // ---------- boot ----------
   showView(location.hash.slice(1), true);
   if (REMOTE) {
-    fetch('api/state', { headers: ownerHeaders() }).then((r) => r.json()).then((j) => { state = j.state; render(); if (j.locked) toast('Only the shop owner can see this account. Open it with the owner link (?key=...).'); countUp(['kOut', 'kLate', 'kToday', 'kSup', 'kWeek']); })
+    fetch('api/state', { headers: ownerHeaders() }).then((r) => r.json()).then((j) => { state = j.state; if (j.live) for (const id of ['nextDay', 'closeDay', 'resetBtn']) $(id).hidden = true; render(); if (j.locked) toast('Only the shop owner can see this account. Open it with the owner link (?key=...).'); countUp(['kOut', 'kLate', 'kToday', 'kSup', 'kWeek']); })
       .catch(() => toast('Could not load the account from the agent server. Please reload.'));
   } else { if (!load()) fresh(); render(); countUp(['kOut', 'kLate', 'kToday', 'kSup', 'kWeek']); }
 })();

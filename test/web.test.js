@@ -365,11 +365,11 @@ test('voice + AI: a misheard amount is never invented, a garbled note gets a sho
     assert.equal(server.getState().txns.filter((t) => t.type === 'payment' && t.amount === 1500).length, 1);
     lib.clear();
 
-    // too garbled: the AI's one short question goes to the owner
+    // too garbled: a fixed short question goes to the owner (the model's own words never do, KAN-109)
     heard = 'haan wo... uska... kal wala';
     reply = { intent: 'unknown', name: '', items: '', amount: 0, due_date: '', phone: '', canon: '', ask: 'Kiska aur kitne ka hisaab likhun?' };
     await inbound(server, lib, wmsg(OWNER, { audioMessage: { mimetype: 'audio/ogg', ptt: true } }));
-    assert.match(lib.texts(OWNER).join('\n'), /🤔 Kiska aur kitne ka hisaab likhun\?/);
+    assert.match(lib.texts(OWNER).join('\n'), /🤔 Thoda saaf boliye: kiska khata, kitne rupaye/);
     lib.clear();
 
     // a supplier note in loose words: the AI's clean rewrite reaches the supplier khata, not a new customer

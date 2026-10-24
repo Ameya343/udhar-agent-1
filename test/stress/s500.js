@@ -280,9 +280,9 @@ for (let i = 0; i < 380; i++) {
     const known = rnd() < 0.65; const fi = Math.floor(rnd() * UPIF.length); const F = known ? pick(Object.keys(UPIK)) : pick(UPIU); const [a] = amt(); const ref = String(400000000000 + Math.floor(rnd() * 1e9));
     const sms = UPIF[fi].replace('{a}', a).replace('{F}', F).replace('{v}', F.split(' ')[0].toLowerCase() + '@okaxis').replace('{ref}', ref);
     const r = step(s, 'owner', sms);
-    if (known) checkWrite(r, 'payment', UPIK[F], a, 'upi-known-fmt' + fi);
-    else expect(r, !r.newT.length, 'critical', 'upi-unknown-sender-matched', effects(r) + ' from ' + F, 'ask owner, write nothing');
-    done(r);
+    // a bank name that only looks like a khata ("SANJAY VERMA" for Verma ji) is asked first, then written on haan (KAN-103)
+    if (known) { expect(r, !r.newT.length && /ka hai\?/.test(r.owner), 'critical', 'upi-lookalike-auto-credit-fmt' + fi, effects(r) + ' | ' + r.owner.slice(0, 120), 'ask haan / nahi'); done(r); const ry = step(s, 'owner', 'haan'); checkWrite(ry, 'payment', UPIK[F], a, 'upi-known-fmt' + fi); done(ry); }
+    else { expect(r, !r.newT.length, 'critical', 'upi-unknown-sender-matched', effects(r) + ' from ' + F, 'ask owner, write nothing'); done(r); }
     if (/Ref/i.test(sms)) { const r2 = step(s, 'owner', sms); expect(r2, !r2.newT.length, 'critical', 'upi-duplicate-sms-double-credit', effects(r2), 'same ref ignored'); done(r2); }
   } else if (m < 0.7) {
     const id = pick(KIDS); const [a, as] = amt(); const [tid, t] = pick(PY); const r = step(s, 'owner', fill(t, pick(KNOWN[id]), as));
@@ -380,7 +380,7 @@ for (let i = 0; i < 100; i++) {
   // payment method must not change score
   const s2 = shop(); const [a] = amt();
   step(s2, 'owner', KNOWN[id][0] + ' ne ' + a + ' cash diye'); const sA = C.customerScore(s2, id).score;
-  const s3 = shop(); step(s3, 'owner', 'Rs ' + a + ' credited to your account from ' + Object.keys(UPIK).find((k) => UPIK[k] === id) + ' Ref 99' + i);
+  const s3 = shop(); step(s3, 'owner', 'Rs ' + a + ' credited to your account from ' + Object.keys(UPIK).find((k) => UPIK[k] === id) + ' Ref 99' + i); step(s3, 'owner', 'haan');
   const sB = C.customerScore(s3, id).score; stats[CUR].run++;
   if (!Object.values(UPIK).includes(id) || sA === sB) stats[CUR].pass++; else fail(CUR, 'medium', 'score-depends-on-pay-method', id, sA + ' vs ' + sB, 'same');
   const r5 = step(s, 'owner', pick(['{n} ka score', '{n} ka credit score batao', '{n} ka record kaisa hai']).replace('{n}', KNOWN[id][0]));

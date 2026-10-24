@@ -89,7 +89,8 @@ test('full loop over HTTP: reminder, cash claim, evening confirm, UPI', async ()
     assert.ok(!r.body.state.customers.find((c) => c.id === 'C001').dueDate || r.body.state.txns.some((t) => t.custId === 'C001' && t.type === 'payment' && t.date === r.body.state.today));
     r = await act(u, 'galla', { text: 'Pappu 200 jama' });
     assert.equal(r.status, 400, 'the Galla Mic action is gone');
-    r = await act(u, 'upi', { text: 'Rs 700.00 received from MEENA KUMARI via Google Pay. UPI Ref 551200987654' });
+    // a known UPI id writes at once; a name that only looks like Meena didi would be asked first (KAN-103)
+    r = await act(u, 'upi', { text: 'Rs 700.00 received from MEENA KUMARI meena.k@ybl via Google Pay. UPI Ref 551200987654' });
     assert.ok(r.body.freshTxn);
     r = await act(u, 'reset');
     assert.equal(r.body.state.txns.filter((t) => t.note !== 'seed').length, 0);
@@ -232,8 +233,26 @@ test('a live shop (REAL_CLOCK=1): the public page is view-only (KAN-44)', async 
     }
     assert.equal((await post('owner', { ...pub, 'x-admin-key': 'owner-secret' })).status, 200, 'the owner with the key can act');
     assert.equal((await post('reset', { ...pub, 'x-admin-key': 'wrong' })).status, 403);
-    assert.equal((await post('reset', { ...pub, 'x-admin-key': 'owner-secret' })).status, 200);
-    assert.equal((await post('reset', {})).status, 200, 'the instance itself can always reset');
+  } finally { srv.close(); }
+});
+
+test('KAN-101/102: a live shop refuses reset, next day and close day for everyone, the owner too', async () => {
+  const srv = createServer({ env: { SHOP: 'gupta', DATA_DIR: tmpDir(), REAL_CLOCK: '1', ADMIN_KEY: 'owner-secret' }, today: () => TODAY });
+  const base = await listen(srv);
+  try {
+    const post = (action, headers) => fetch(base + '/api/act', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ action, args: {} }) });
+    const n = srv.getState().txns.length, day = srv.getState().today;
+    for (const h of [{ 'x-forwarded-for': '1.2.3.4', 'x-admin-key': 'owner-secret' }, {}]) {
+      for (const a of ['reset', 'nextDay', 'closeDay']) {
+        const r = await post(a, h);
+        assert.equal(r.status, 403, a);
+        assert.equal((await r.json()).error, 'live', a);
+      }
+    }
+    assert.equal(srv.getState().txns.length, n, 'the khata is untouched');
+    assert.equal(srv.getState().today, day, 'the day did not move');
+    const st = await (await fetch(base + '/api/state')).json();
+    assert.equal(st.live, true, 'the page is told to hide those buttons');
   } finally { srv.close(); }
 });
 

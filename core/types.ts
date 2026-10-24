@@ -312,6 +312,11 @@ export interface UpiInfo {
   tag: string | null;
   ref: string | null;
   credited: boolean;
+  /** the owner's own outgoing payment ("debited ... to PAPPU", "sent to PAPPU"): never a customer's jama (KAN-104) */
+  outgoing?: boolean;
+  payeeName?: string | null;
+  /** rounded from paise ("Rs 500.75" -> 501), told to the owner (KAN-105) */
+  roundedFrom?: number;
   raw?: string;
 }
 
@@ -431,8 +436,12 @@ export interface OwnerIntent {
   edit?: { txnId: string; op: string };
   /** a huge amount the owner already confirmed */
   bigOk?: boolean;
+  /** an item rate far from the remembered one, already confirmed (KAN-106) */
+  rateOk?: boolean;
   /** "500 diye the kal": the day the money came */
   paidOn?: IsoDate;
+  /** a promised day that does not exist or is out of reach, asked instead of written (KAN-110) */
+  dueBad?: string;
   /** "udhaar maaf": a write-off */
   writeOff?: boolean;
   /** "10% kam karo" */

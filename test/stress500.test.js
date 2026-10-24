@@ -51,16 +51,19 @@ for (const [msg, name, amt, type] of [['shrma ji ne 300 ka saman liya', 'Sharma 
 test('UPI SMS from SURESH KALE BHOSALE asks the owner', () => {
   const s = shop();
   const r = run(s, 'INR 60.00 credited to A/c XX1234 by UPI from SURESH KALE BHOSALE UPI Ref 400287871837');
-  assert.strictEqual(r.newT.length, 0); assert.match(r.owner, /Kiska hai/);
+  assert.strictEqual(r.newT.length, 0); assert.match(r.owner, /Kale madam ka hai\? \*haan\* \/ \*nahi\*/);
 });
-test('UPI SMS from a known two-word name still settles', () => {
+test('UPI SMS from a two-word name that only looks like a khata is asked, then settles on haan (KAN-103)', () => {
   const s = shop();
-  one(run(s, 'Rs.500 received from SANJAY VERMA via UPI. Ref No 400111222333'), 'payment', s, 'Verma ji', 500);
+  const r = run(s, 'Rs.500 received from SANJAY VERMA via UPI. Ref No 400111222333');
+  assert.strictEqual(r.newT.length, 0); assert.match(r.owner, /SANJAY VERMA se aaya: Verma ji ka hai\?/);
+  one(run(s, 'haan'), 'payment', s, 'Verma ji', 500);
 });
 // ---- low 25: VPA after the name
 test('UPI SMS with a VPA after the name uses the surname', () => {
   const s = shop();
-  one(run(s, 'Rs 1500 credited to your account from ANIL DESHMUKH anil@okaxis'), 'payment', s, 'Deshmukh kaka', 1500);
+  assert.match(run(s, 'Rs 1500 credited to your account from ANIL DESHMUKH anil@okaxis').owner, /Deshmukh kaka ka hai\?/);
+  one(run(s, 'haan'), 'payment', s, 'Deshmukh kaka', 1500);
 });
 
 // ---- high 4: payment words
@@ -71,7 +74,8 @@ for (const [msg, name, amt] of [['iqbal ne 650 gpay kiya', 'Iqbal bhai', 650], [
 // ---- high 5: Google Pay "sent you"
 test('Google Pay "sent you" SMS is a payment', () => {
   const s = shop();
-  one(run(s, 'SANJAY VERMA sent you ₹150 via Google Pay. UPI txn 400123456789'), 'payment', s, 'Verma ji', 150);
+  assert.match(run(s, 'SANJAY VERMA sent you ₹150 via Google Pay. UPI txn 400123456789').owner, /Verma ji ka hai\?/);
+  one(run(s, 'haan'), 'payment', s, 'Verma ji', 150);
 });
 // ---- high 6 / 8: a count is not rupees; rate memory with "name item qty unit"
 test('bare count with no rate asks, never writes ₹3', () => {

@@ -24,8 +24,9 @@
 //                          server/wa-web.ts. An old value (twilio, meta) logs a warning and web is used.
 //   LINK_KEY               the secret for GET /link?key=..., where the shop's WhatsApp number is linked by QR
 //   ACT_LIMIT_PER_MIN      default 30: /api/act calls per minute per visitor IP (the public demo URL is open to anyone)
-//   ADMIN_KEY              optional: on a live shop (REAL_CLOCK=1) "reset", "next day" and "close day" from the public page
-//                          need the header x-admin-key with this value; calls from the instance itself always work
+//   ADMIN_KEY              on a live shop (REAL_CLOCK=1) the page shows the khata and accepts actions only with the
+//                          header x-admin-key (or ?key= on the page); calls from the instance itself always work.
+//                          "reset", "next day" and "close day" are refused on a live shop for everyone (KAN-101, KAN-102)
 //   UDHAAR_ENV_FILE        optional KEY=value file read once at startup (default /home/node/udhaar.env).
 //                          Agent37 cannot pass env vars to an instance, so keys go in this file instead.
 //                          A variable already set in the real environment wins over the file.
@@ -147,7 +148,7 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
   // full = the owner (local or admin key), or any visitor of a demo shop; /api/act only answers those
   function snapshot(extra?: Snapshot, full = true): Snapshot {
     return Object.assign({
-      state: publicState(full), dashboard: full ? C.dashboard(state, 30) : C.dashboard(publicState(false), 30), shopId, locked: !full,
+      state: publicState(full), dashboard: full ? C.dashboard(state, 30) : C.dashboard(publicState(false), 30), shopId, locked: !full, live: env.REAL_CLOCK === '1',
       engine: { llm: engine.llm, model: engine.model, lastError: engine.lastError, whatsapp: wa.stats.enabled },
       others
     }, extra || {});
@@ -204,6 +205,11 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
   const local = (req: http.IncomingMessage) => !req.headers['x-forwarded-for'] && /^(::1|127\.|::ffff:127\.)/.test(req.socket.remoteAddress || '');
   const sameKey = (a: unknown, b: unknown) => { const x = Buffer.from(String(a || '')), y = Buffer.from(String(b)); return x.length === y.length && (require('crypto') as typeof import('crypto')).timingSafeEqual(x, y); };
   const live = env.REAL_CLOCK === '1';
+  const LIVE_BLOCKED: Record<string, string> = Object.assign(Object.create(null), {
+    reset: 'Yeh asli dukaan ka khata hai: reset band hai, taaki saara udhaar ek click mein na mite.',
+    nextDay: 'Asli dukaan mein din apne aap badalta hai (asli tareekh se). Subah ke reminder khud jaate hain.',
+    closeDay: 'Asli dukaan mein shaam ka hisaab apne aap ' + (+env.EVENING_HOUR! || 21) + ' baje jaata hai.'
+  });
   const isOwner = (req: http.IncomingMessage) => local(req) || !!(env.ADMIN_KEY && sameKey(req.headers['x-admin-key'], env.ADMIN_KEY));
   function limited(req: http.IncomingMessage, route: string) {
     // the rightmost x-forwarded-for hop is the one the hosting proxy added; the ones left of it are whatever the client sent (KAN-46)
@@ -265,6 +271,9 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
         // WhatsApp, so nobody on the link can write udhaar, approve cash, give consent or move the day (KAN-44)
         if (live && !isOwner(req))
           return send(res, 403, { error: 'locked', message: 'Yeh asli dukaan ka khata hai: yahan sirf dekh sakte hain. Entry, reminder aur baaki kaam WhatsApp par hote hain 🙏' });
+        // a live shop runs on the real calendar: nobody, not even the owner, can wipe the khata or move its day by hand.
+        // The scheduler (tick) moves the day and sends the evening summary itself (KAN-101, KAN-102).
+        if (live && LIVE_BLOCKED[action]) return send(res, 403, { error: 'live', message: LIVE_BLOCKED[action] });
         const out = await serial(async () => {
           const from = state.messages.length, before = state;
           const r = await act(action, args);
