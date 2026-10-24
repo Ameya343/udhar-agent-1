@@ -2,8 +2,8 @@
 // "Krish ki list badlo: ...". The same entry changes (no double counting) and Krish gets the updated list once.
 const test = require('node:test');
 const assert = require('node:assert');
-const C = require('../core/agent-core.js');
-const U = require('../core/understand.js');
+const C = require('../dist-server/core/agent-core.js');
+const U = require('../dist-server/core/understand.js');
 
 const TODAY = '2026-10-08';
 function shop(phone) {

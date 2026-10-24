@@ -6,10 +6,10 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const C = require('../core/agent-core.js');
-const U = require('../core/understand.js');
-const { createLlm, extractJson } = require('../server/llm.js');
-const { createServer } = require('../server/server.js');
+const C = require('../dist-server/core/agent-core.js');
+const U = require('../dist-server/core/understand.js');
+const { createLlm, extractJson } = require('../dist-server/server/llm.js');
+const { createServer } = require('../dist-server/server/server.js');
 
 const TODAY = '2026-10-08';
 const u = (o) => Object.assign({ lang: 'hinglish', english: '', relevant: true, reason: '', intent: 'chitchat', items: [], amount: null, person: '', phone: '', due_date: '', method: '', canon: '', confidence: 0.9, ask: '' }, o);

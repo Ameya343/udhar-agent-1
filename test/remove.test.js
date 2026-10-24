@@ -5,9 +5,9 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const C = require('../core/agent-core.js');
-const { createServer } = require('../server/server.js');
-const { twilioSignature } = require('../server/whatsapp.js');
+const C = require('../dist-server/core/agent-core.js');
+const { createServer } = require('../dist-server/server/server.js');
+const { fakeWeb } = require('./fake-wa.js');
 
 const TODAY = '2026-10-07';
 const shop = () => C.freshShop('gupta', TODAY);
@@ -56,7 +56,9 @@ test('remove keeps the money, shows the baaki, and restore brings the customer b
 test('two customers with the same name: the owner is asked which one', () => {
   const s = shop();
   owner(s, 'Rahul Kumar ne 100 ka saaman liya');
+  owner(s, 'haan');
   owner(s, 'Amit Kumar ne 50 ka saaman liya');
+  owner(s, 'haan');
   const r = owner(s, 'Kumar ko hatao');
   assert.match(r, /naam ke \d khate hain. Kaun se\?/);
   assert.ok(s.pending);
@@ -102,9 +104,9 @@ function fakeFetch() {
   const sent = [];
   const f = async (url, init) => {
     url = String(url);
-    if (url.includes('/Messages.json')) { const q = new URLSearchParams(init.body); sent.push({ to: q.get('To'), body: q.get('Body') }); return new Response('{}', { status: 201 }); }
     return new Response('{}', { status: 404 });
   };
+  f.sent = sent;
   f.to = (n) => sent.filter((x) => x.to === 'whatsapp:' + n).map((x) => x.body);
   f.clear = () => { sent.length = 0; };
   return f;
@@ -114,15 +116,11 @@ fs.existsSync(path.join(__dirname, '../dist/udhaar-agent-standalone.html')) || r
 
 test('WhatsApp: recipient blocked, one polite line, no new-number ask, restore works', async () => {
   const fetch = fakeFetch();
-  const env = { SHOP: 'gupta', DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'udhaar-rm-')), TWILIO_ACCOUNT_SID: 'ACtest', TWILIO_AUTH_TOKEN: 'secret-token',
-    TWILIO_WHATSAPP_FROM: 'whatsapp:+14155238886', OWNER_WHATSAPP: OWNER, PUBLIC_URL: PUBLIC };
-  const server = createServer({ env, today: () => TODAY, fetch });
-  const base = await listen(server);
-  const inbound = async (fromNum, body) => {
-    const params = { MessageSid: 'SM' + Math.random().toString(16).slice(2), NumMedia: '0', From: 'whatsapp:' + fromNum, ProfileName: 'Sharma', Body: body };
-    await globalThis.fetch(base + '/whatsapp', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-twilio-signature': twilioSignature('secret-token', PUBLIC + '/whatsapp', params) }, body: new URLSearchParams(params).toString() });
-    await server.idle();
-  };
+  const env = { SHOP: 'gupta', DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'udhaar-rm-')), WA_PROVIDER: 'web', OWNER_WHATSAPP: OWNER, PUBLIC_URL: PUBLIC };
+  const web = fakeWeb((to, c) => fetch.sent.push({ to: 'whatsapp:+' + to, body: c.text }));
+  const server = createServer({ env, today: () => TODAY, fetch, webTransport: web.factory });
+  await listen(server);
+  const inbound = (fromNum, body) => web.inbound(server, { From: fromNum, ProfileName: 'Sharma', Body: body });
   try {
     await inbound(SHARMA, 'hi'); // known number joins (c.wa)
     fetch.clear();
@@ -153,15 +151,11 @@ test('WhatsApp: recipient blocked, one polite line, no new-number ask, restore w
 
 test('WhatsApp: a removed number says hi, owner "ok" reopens the khata and the customer is told', async () => {
   const fetch = fakeFetch();
-  const env = { SHOP: 'gupta', DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'udhaar-rm-')), TWILIO_ACCOUNT_SID: 'ACtest', TWILIO_AUTH_TOKEN: 'secret-token',
-    TWILIO_WHATSAPP_FROM: 'whatsapp:+14155238886', OWNER_WHATSAPP: OWNER, PUBLIC_URL: PUBLIC };
-  const server = createServer({ env, today: () => TODAY, fetch });
-  const base = await listen(server);
-  const inbound = async (fromNum, body) => {
-    const params = { MessageSid: 'SM' + Math.random().toString(16).slice(2), NumMedia: '0', From: 'whatsapp:' + fromNum, ProfileName: 'Sharma', Body: body };
-    await globalThis.fetch(base + '/whatsapp', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-twilio-signature': twilioSignature('secret-token', PUBLIC + '/whatsapp', params) }, body: new URLSearchParams(params).toString() });
-    await server.idle();
-  };
+  const env = { SHOP: 'gupta', DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'udhaar-rm-')), WA_PROVIDER: 'web', OWNER_WHATSAPP: OWNER, PUBLIC_URL: PUBLIC };
+  const web = fakeWeb((to, c) => fetch.sent.push({ to: 'whatsapp:+' + to, body: c.text }));
+  const server = createServer({ env, today: () => TODAY, fetch, webTransport: web.factory });
+  await listen(server);
+  const inbound = (fromNum, body) => web.inbound(server, { From: fromNum, ProfileName: 'Sharma', Body: body });
   try {
     await inbound(SHARMA, 'hi');
     await inbound(OWNER, 'Sharma ji ko hatao');

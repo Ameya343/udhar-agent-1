@@ -6,9 +6,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
-const { createServer } = require('../server/server.js');
-const { createWebTransport, parseWebMessage } = require('../server/wa-web.js');
-const C = require('../core/agent-core.js');
+const { createServer } = require('../dist-server/server/server.js');
+const { createWebTransport, parseWebMessage } = require('../dist-server/server/wa-web.js');
+const C = require('../dist-server/core/agent-core.js');
 
 const TODAY = '2026-10-08';
 const OWNER = '919800000001', JUDGE = '919812345678';
@@ -69,7 +69,7 @@ async function webServer(extraEnv, heard, llm) {
   const env = Object.assign({ SHOP: 'nayi', DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'udhaar-web-')), WA_PROVIDER: 'web', OWNER_WHATSAPP: '+' + OWNER }, extraEnv || {});
   const fetch = fakeFetch(heard, llm);
   const server = createServer({ env, today: () => TODAY, fetch, now: () => clock.t, waWebLib: lib, sleep: async (ms) => { slept.push(ms); clock.t += ms; } });
-  if (server.web && env.WA_PROVIDER === 'web') await server.web.start();
+  if (server.web) await server.web.start();
   return { server, lib, clock, slept, env, fetch };
 }
 async function inbound(server, lib, ...msgs) {
@@ -100,7 +100,7 @@ test('parsing: text, captions, voice notes, button-less replies and @lid senders
   assert.equal(p(wmsg(JUDGE, null)), null);
 });
 
-test('inbound goes through the same handler as Twilio: join, bill, haan, cash claim, owner confirms; no 24h window', async () => {
+test('inbound goes through the shared handler: join, bill, haan, cash claim, owner confirms; no 24h window', async () => {
   const { server, lib, clock } = await webServer();
   try {
     lib.connect();
@@ -133,7 +133,7 @@ test('inbound goes through the same handler as Twilio: join, bill, haan, cash cl
     assert.equal(C.balance(server.getState(), rohit.id), 0);
 
     // the same message id twice is acted on once
-    const again = wmsg(OWNER, txt('Pappu 100 udhaar'));
+    const again = wmsg(OWNER, txt('Rohit ji 100 udhaar'));
     await inbound(server, lib, again, again);
     assert.equal(server.getState().txns.filter((t) => t.amount === 100).length, 1);
 
@@ -153,7 +153,7 @@ test('inbound goes through the same handler as Twilio: join, bill, haan, cash cl
     await server.idle();
     assert.deepEqual(lib.texts(OWNER), ['Evening summary']);
 
-    // the Twilio webhook is off while web is the provider; health shows the link
+    // there is no Twilio webhook any more; health shows the link
     const base = await listen(server);
     assert.equal((await fetch(base + '/whatsapp', { method: 'POST', body: 'a=b' })).status, 404);
     const h = await (await fetch(base + '/healthz')).json();
@@ -171,6 +171,7 @@ test('voice notes: the audio is downloaded and sent to speech-to-text; ElevenLab
     assert.equal(lib.downloads, 1);
     assert.ok(fetch.calls.some((c) => c.url === 'http://stt.test/v1/audio/transcriptions'));
     assert.match(lib.texts(OWNER)[0], /Suna: "Pappu 200 udhaar"/);
+    await inbound(server, lib, wmsg(OWNER, txt('haan'))); // new name: written after the owner's haan
     assert.equal(server.getState().txns.filter((t) => t.amount === 200).length, 1);
 
     // a customer who wrote first gets the bill as text and then a voice note
@@ -225,7 +226,7 @@ test('send queue: one at a time, 2-4 s apart with typing first, hourly cap on bu
   web.stop();
 });
 
-test('/link: 403 without the right key; with it a QR, then the connected status; works while Twilio is the provider', async () => {
+test('/link: 403 without the right key; with it a QR, then the connected status; a LINK_KEY alone turns WhatsApp on', async () => {
   // no LINK_KEY: always 403
   const none = createServer({ env: { SHOP: 'nayi', DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'udhaar-web-')) }, today: () => TODAY });
   const b0 = await listen(none);
@@ -235,10 +236,10 @@ test('/link: 403 without the right key; with it a QR, then the connected status;
     assert.equal((await (await fetch(b0 + '/healthz')).json()).whatsapp.web, null);
   } finally { none.close(); }
 
-  const { server, lib, env } = await webServer({ WA_PROVIDER: '', LINK_KEY: 'k3y-0123456789ab', TWILIO_AUTH_TOKEN: 't', OWNER_WHATSAPP: '+' + OWNER });
+  const { server, lib, env } = await webServer({ WA_PROVIDER: '', LINK_KEY: 'k3y-0123456789ab', OWNER_WHATSAPP: '+' + OWNER });
   const base = await listen(server);
   try {
-    assert.equal(lib.sockets.length, 0); // twilio mode: nothing connects until /link is opened
+    assert.equal(lib.sockets.length, 1); // web is the default: the link starts at boot
     assert.equal((await fetch(base + '/link')).status, 403);
     assert.equal((await fetch(base + '/link?key=wrong')).status, 403);
     assert.equal((await fetch(base + '/link?key=k3y-0123456789aB')).status, 403);
@@ -246,7 +247,7 @@ test('/link: 403 without the right key; with it a QR, then the connected status;
     assert.equal(r.status, 200);
     assert.equal(r.headers.get('referrer-policy'), 'no-referrer');
     assert.match(await r.text(), /meta http-equiv="refresh"/);
-    assert.equal(lib.sockets.length, 1);
+    assert.equal(lib.sockets.length, 1); // the page does not start a second session
     lib.sock().ev.emit('connection.update', { qr: '2@abcdefghijklmnopqrstuvwxyz0123456789,ABCDEFGHIJ=,KLMNOP=,QRST=' });
     let html = await (await fetch(base + '/link?key=' + env.LINK_KEY)).text();
     assert.match(html, /<svg/);
@@ -254,13 +255,13 @@ test('/link: 403 without the right key; with it a QR, then the connected status;
     lib.connect();
     html = await (await fetch(base + '/link?key=' + env.LINK_KEY)).text();
     assert.match(html, /Jud gaya/);
-    assert.match(html, /WA_PROVIDER=web/);
-    // linked early but still on Twilio: its chats are not answered and nothing is sent from it
+    assert.match(html, /WhatsApp isi number se chal raha hai/);
+    assert.doesNotMatch(html, /Twilio|WA_PROVIDER/);
+    // once linked, the owner's chats are answered
     await inbound(server, lib, wmsg(OWNER, txt('Rohit 500 udhaar')));
-    assert.equal(server.getState().txns.length, 0);
-    assert.equal(lib.sent.length, 0);
+    assert.ok(lib.texts(OWNER).length >= 1, 'the owner gets an answer from the linked number');
     const h = await (await fetch(base + '/healthz')).json();
-    assert.equal(h.whatsapp.provider, 'twilio');
+    assert.equal(h.whatsapp.provider, 'web');
     assert.equal(h.whatsapp.web.state, 'connected');
   } finally { server.close(); }
 });
@@ -301,6 +302,7 @@ test('voice is input only: with just an ElevenLabs key, voice notes are transcri
     assert.equal(stt.init.body.get('language_code'), 'hi');
     assert.equal(stt.init.body.get('tag_audio_events'), 'false');
     assert.match(lib.texts(OWNER)[0], /Suna: "शर्मा जी/); // the owner sees exactly what was heard
+    await inbound(server, lib, wmsg(OWNER, txt('haan'))); // new name: written after the owner's haan
     const t = server.getState().txns.find((x) => x.amount === 500);
     assert.ok(t, '"paanch sau" written as 500');
     assert.equal(server.getState().customers.find((c) => c.id === t.custId).name, 'Sharma ji');
@@ -354,6 +356,7 @@ test('voice + AI: a misheard amount is never invented, a garbled note gets a sho
     // "dedh hazaar" becomes 1500 before the AI reads it, so the AI's 1500 is backed by the words
     reply = { intent: 'credit', name: 'Pappu', items: '', amount: 2000, due_date: '', phone: '', canon: 'Pappu 2000 udhaar', ask: '' };
     await inbound(server, lib, wmsg(OWNER, txt('Pappu do hazaar udhaar')));
+    await inbound(server, lib, wmsg(OWNER, txt('haan'))); // new name: written after the owner's haan
     assert.equal(server.getState().txns.filter((t) => t.type === 'credit' && t.amount === 2000).length, 1, 'typed number words back the AI amount too');
     heard = 'पप्पू ने डेढ़ हज़ार जमा किए';
     reply = { intent: 'payment', name: 'Pappu', items: '', amount: 1500, due_date: '', phone: '', canon: 'Pappu ne 1500 jama kiye', ask: '' };

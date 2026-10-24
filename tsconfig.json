@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "node16",
+    "moduleResolution": "node16",
+    "types": ["node"],
+    "rootDir": ".",
+    "outDir": "dist-server",
+    "strict": true,
+    "noImplicitReturns": false,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "noEmitOnError": true,
+    "removeComments": false,
+    "newLine": "lf"
+  },
+  "include": ["core/**/*.ts", "server/**/*.ts", "scripts/**/*.ts"]
+}

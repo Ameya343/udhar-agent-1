@@ -1,5 +1,5 @@
-// Third WhatsApp transport: a linked device on an ordinary WhatsApp number (like WhatsApp Web), through the
-// Baileys multi-device library (no browser). Chosen with WA_PROVIDER=web; linking works in any mode (GET /link).
+// The WhatsApp transport: a linked device on an ordinary WhatsApp number (like WhatsApp Web), through the
+// Baileys multi-device library (no browser). Linked by QR at GET /link.
 //
 // This is not an official API. WhatsApp's terms do not allow it and the number can be banned, so the sends here are
 // kept slow and human-like: one at a time, 2-4 s apart with a typing indicator, at most WA_WEB_MAX_PER_HOUR
@@ -10,24 +10,40 @@
 //   WA_WEB_AUTH_DIR        where the link (session keys) is kept; default /home/node/data/wa-web-auth
 //   WA_WEB_MAX_PER_HOUR    business-initiated sends per hour (default 30); replies to someone who wrote in the
 //                          last 30 minutes are not counted
-//   LINK_KEY               the secret in /link?key=..., the page that shows the QR to scan. The page works with any
-//                          WA_PROVIDER, so the number can be linked first; it only sends and answers once WA_PROVIDER=web.
+//   LINK_KEY               the secret in /link?key=..., the page that shows the QR to scan.
 //   WA_WEB_DISPLAY_NUMBER  optional: the linked number (digits) for the /join QR; default the linked number itself
-'use strict';
-const fs = require('fs');
+import fs = require('fs');
+
+// Baileys is loaded at run time (o.loadLib) and is not a typed dependency here, so its module, socket, events and raw
+// messages are `any`; parseWebMessage checks every field it reads.
+type Baileys = any;
+type RawMessage = any;
+export interface WebMessage { id: string; from: string; name: string; text: string; audio: { web: RawMessage; type: string } | null }
+export interface SendContent { text?: string; audio?: Buffer; mimetype?: string }
+export interface WebTransportOpts {
+  authDir: string;
+  loadLib: () => Promise<Baileys>;
+  onMessage?: (msg: WebMessage) => void;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<unknown>;
+  random?: () => number;
+  maxPerHour?: number;
+  keepAlive?: boolean;
+}
+export type WebTransport = ReturnType<typeof createWebTransport>;
 
 const REPLY_WINDOW = 30 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
-const digits = (s) => String(s || '').replace(/\D/g, '');
+const digits = (s: unknown) => String(s || '').replace(/\D/g, '');
 
 /** The phone-number JID among a message key's addresses (newer WhatsApp sends a hidden "@lid" id plus the number). */
-function pnJid(key) {
+function pnJid(key: RawMessage): string | null {
   for (const j of [key.remoteJid, key.remoteJidAlt, key.senderPn, key.participantAlt]) if (j && /@s\.whatsapp\.net$/.test(j)) return j;
   return null;
 }
 
 /** Unwraps disappearing / view-once / edited wrappers to the real message content. */
-function unwrap(c) {
+function unwrap(c: RawMessage): RawMessage {
   for (let i = 0; i < 5 && c; i++) {
     const inner = (c.ephemeralMessage || c.viewOnceMessage || c.viewOnceMessageV2 || c.viewOnceMessageV2Extension || c.documentWithCaptionMessage || {}).message;
     if (!inner) break;
@@ -41,7 +57,7 @@ function unwrap(c) {
  * status updates, broadcasts, channels, protocol messages, numbers we cannot see).
  * { id, from: '919812345678', name, text, audio: { web: rawMessage, type } | null }
  */
-function parseWebMessage(m) {
+function parseWebMessage(m: RawMessage): WebMessage | null {
   if (!m || !m.key || !m.message) return null;
   const k = m.key;
   const jid = String(k.remoteJid || '');
@@ -51,7 +67,7 @@ function parseWebMessage(m) {
   if (!pn) return null;
   const c = unwrap(m.message);
   if (!c) return null;
-  let text = '', audio = null;
+  let text = '', audio: WebMessage['audio'] = null;
   if (typeof c.conversation === 'string') text = c.conversation;
   else if (c.extendedTextMessage) text = c.extendedTextMessage.text || '';
   else if (c.audioMessage) audio = { web: m, type: String(c.audioMessage.mimetype || 'audio/ogg').split(';')[0] };
@@ -67,34 +83,34 @@ function parseWebMessage(m) {
 /** A logger Baileys accepts (pino-like); only errors are printed, briefly. */
 function quietLogger() {
   const l = { level: 'error', trace() {}, debug() {}, info() {}, warn() {},
-    error(o, msg) { console.log('wa-web: ' + String(msg || (o && o.err && o.err.message) || (o && o.msg) || '').slice(0, 160)); },
-    fatal(o, msg) { l.error(o, msg); }, child() { return l; } };
+    error(o: any, msg?: string) { console.log('wa-web: ' + String(msg || (o && o.err && o.err.message) || (o && o.msg) || '').slice(0, 160)); },
+    fatal(o: any, msg?: string) { l.error(o, msg); }, child() { return l; } };
   return l;
 }
 
 /**
  * o: { authDir, loadLib: () => Promise<baileys module>, onMessage(msg), now, sleep(ms), random(), maxPerHour,
- *      keepAlive (true when WA_PROVIDER=web: stay connected and reconnect always) }
+ *      keepAlive (true: stay connected and reconnect always) }
  */
-function createWebTransport(o) {
+function createWebTransport(o: WebTransportOpts) {
   const now = o.now || Date.now;
-  const sleep = o.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const sleep = o.sleep || ((ms: number) => new Promise((r) => setTimeout(r, ms)));
   const random = o.random || Math.random;
   const maxPerHour = o.maxPerHour || 30;
   const authDir = o.authDir;
-  const st = { state: 'off', qr: null, me: null, lastError: null, reconnects: 0, sent: 0, failed: 0, capped: 0, received: 0, ignored: 0 };
-  let lib = null, sock = null, starting = null, retry = 0, retryTimer = null, wantedAt = 0, gen = 0;
-  const lastInbound = new Map();
-  const business = []; // times of business-initiated sends in the last hour
+  const st: { state: string; qr: string | null; me: string | null; lastError: string | null; reconnects: number; sent: number; failed: number; capped: number; received: number; ignored: number } = { state: 'off', qr: null, me: null, lastError: null, reconnects: 0, sent: 0, failed: 0, capped: 0, received: 0, ignored: 0 };
+  let lib: Baileys = null, sock: any = null, starting: Promise<void> | null = null, retry = 0, retryTimer: ReturnType<typeof setTimeout> | null = null, wantedAt = 0, gen = 0;
+  const lastInbound = new Map<string, number>();
+  const business: number[] = []; // times of business-initiated sends in the last hour
 
-  function canReconnect(registered) { return o.keepAlive || registered || now() - wantedAt < 3 * 60 * 1000; }
-  function schedule(ms) {
-    clearTimeout(retryTimer);
+  function canReconnect(registered: boolean) { return o.keepAlive || registered || now() - wantedAt < 3 * 60 * 1000; }
+  function schedule(ms: number) {
+    clearTimeout(retryTimer!);
     retryTimer = setTimeout(() => { retryTimer = null; open().catch((e) => { st.lastError = String(e.message || e).slice(0, 200); }); }, ms);
     if (retryTimer.unref) retryTimer.unref();
   }
 
-  async function open() {
+  async function open(): Promise<void> {
     if (starting) return starting;
     starting = (async () => {
       lib = lib || await o.loadLib();
@@ -109,7 +125,7 @@ function createWebTransport(o) {
         printQRInTerminal: false, markOnlineOnConnect: false, syncFullHistory: false, generateHighQualityLinkPreview: false });
       sock = s;
       s.ev.on('creds.update', saveCreds);
-      s.ev.on('connection.update', (u) => {
+      s.ev.on('connection.update', (u: any) => {
         if (my !== gen) return;
         if (u.qr) { st.qr = u.qr; st.state = 'qr'; }
         if (u.connection === 'open') {
@@ -138,21 +154,21 @@ function createWebTransport(o) {
           schedule(wait);
         }
       });
-      s.ev.on('messages.upsert', (up) => {
+      s.ev.on('messages.upsert', (up: any) => {
         if (my !== gen || !up || up.type !== 'notify') return;
         for (const m of up.messages || []) {
           const msg = parseWebMessage(m);
           if (!msg) { st.ignored++; continue; }
           st.received++;
           lastInbound.set(msg.from, now());
-          try { o.onMessage && o.onMessage(msg); } catch (e) { st.lastError = String(e.message || e).slice(0, 200); }
+          try { o.onMessage && o.onMessage(msg); } catch (e: any) { st.lastError = String(e.message || e).slice(0, 200); }
         }
       });
     })();
     try { await starting; } finally { starting = null; }
   }
 
-  /** Starts the link if it is not running (the /link page calls this; WA_PROVIDER=web calls it at boot). */
+  /** Starts the link if it is not running (the /link page calls this; the server calls it at boot). */
   function start() {
     wantedAt = now();
     if (starting) return starting.catch(() => {});
@@ -161,15 +177,15 @@ function createWebTransport(o) {
   }
 
   // ------------------------------------------------------------------ sending: one at a time, slow, capped
-  let chain = Promise.resolve();
+  let chain: Promise<unknown> = Promise.resolve();
   let lastSendAt = 0;
   const pending = { n: 0 };
-  function isReply(to) { const t = lastInbound.get(to); return !!t && now() - t < REPLY_WINDOW; }
+  function isReply(to: string) { const t = lastInbound.get(to); return !!t && now() - t < REPLY_WINDOW; }
   function overCap() {
     while (business.length && now() - business[0] >= HOUR) business.shift();
     return business.length >= maxPerHour;
   }
-  async function sendOne(to, content) {
+  async function sendOne(to: string, content: SendContent): Promise<boolean> {
     if (!sock || st.state !== 'connected') { st.failed++; st.lastError = 'not connected, message to +' + to + ' dropped'; return false; }
     const reply = isReply(to);
     if (!reply && overCap()) { st.capped++; console.log('wa-web: hourly cap of ' + maxPerHour + ' reached, message to +' + to + ' dropped'); return false; }
@@ -188,13 +204,13 @@ function createWebTransport(o) {
       st.sent++;
       if (!reply) business.push(now());
       return true;
-    } catch (e) {
+    } catch (e: any) {
       st.failed++; st.lastError = String(e.message || e).slice(0, 200);
       return false;
     } finally { lastSendAt = now(); }
   }
   /** Queues one message; resolves true when WhatsApp took it. content: { text } or { audio: Buffer, mimetype }. */
-  function send(to, content) {
+  function send(to: string, content: SendContent): Promise<boolean> {
     to = digits(to);
     if (!to) return Promise.resolve(false);
     pending.n++;
@@ -204,7 +220,7 @@ function createWebTransport(o) {
   }
 
   /** The voice note's bytes (for speech-to-text). */
-  async function download(raw) {
+  async function download(raw: RawMessage): Promise<Buffer> {
     if (!lib) throw new Error('not started');
     const s = sock;
     return lib.downloadMediaMessage(raw, 'buffer', {}, s ? { logger: quietLogger(), reuploadRequest: s.updateMediaMessage } : { logger: quietLogger() });
@@ -217,9 +233,9 @@ function createWebTransport(o) {
       businessLastHour: business.length, maxPerHour, reconnects: st.reconnects, lastError: st.lastError };
   }
 
-  function stop() { gen++; clearTimeout(retryTimer); retryTimer = null; const s = sock; sock = null; if (s && s.end) try { s.end(undefined); } catch (e) { /* closed */ } }
+  function stop() { gen++; clearTimeout(retryTimer!); retryTimer = null; const s = sock; sock = null; if (s && s.end) try { s.end(undefined); } catch (e) { /* closed */ } }
 
   return { start, stop, send, download, status, qr: () => st.qr, state: () => st.state, number: () => st.me, idle: () => chain };
 }
 
-module.exports = { createWebTransport, parseWebMessage };
+export { createWebTransport, parseWebMessage };

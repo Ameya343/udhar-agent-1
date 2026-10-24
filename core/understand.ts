@@ -4,15 +4,20 @@
 // (amounts must be in the message, payments need payment words, the owner confirms orders); the regex rules in
 // agent-core.js are only the fallback when no model answers. Prompts are plain text with few-shot examples so a
 // small 7-8B open-source instruct model can follow them as well as a large one.
-'use strict';
-const C = require('./agent-core.js');
+import C = require('./agent-core');
+import type { State, Customer, Understanding, UnderstoodItem, UnderstoodEntry, CustomerIntent, OwnerIntent } from './types';
+
+type ChatMsg = { role: string; content: string };
+/** Context for a customer's message (see customerMessages). */
+interface CustomerCtx { asking?: string | null; order?: string | null; history?: { who: string; text: string }[]; dispute?: string | null; balance?: number | null; entries?: string[] }
+type Shot = [string, Partial<Understanding> & { entries?: UnderstoodEntry[]; due_date?: string; items?: Partial<UnderstoodItem>[] }];
 
 // ------------------------------------------------------------------ languages
-const LANG_NAMES = { hinglish: 'Hinglish (Hindi in Latin letters)', hi: 'Hindi (Devanagari script)', mr: 'Marathi (Devanagari script)', en: 'English',
+const LANG_NAMES: Record<string, string> = { hinglish: 'Hinglish (Hindi in Latin letters)', hi: 'Hindi (Devanagari script)', mr: 'Marathi (Devanagari script)', en: 'English',
   ta: 'Tamil', te: 'Telugu', bn: 'Bengali', gu: 'Gujarati', kn: 'Kannada', ml: 'Malayalam', pa: 'Punjabi', or: 'Odia', ur: 'Urdu' };
-const LANG_ALIAS = { hindi: 'hi', marathi: 'mr', english: 'en', tamil: 'ta', telugu: 'te', bengali: 'bn', bangla: 'bn', gujarati: 'gu', kannada: 'kn',
+const LANG_ALIAS: Record<string, string> = { hindi: 'hi', marathi: 'mr', english: 'en', tamil: 'ta', telugu: 'te', bengali: 'bn', bangla: 'bn', gujarati: 'gu', kannada: 'kn',
   malayalam: 'ml', punjabi: 'pa', odia: 'or', oriya: 'or', urdu: 'ur', 'hi-latn': 'hinglish', 'hi_latn': 'hinglish', hinglish: 'hinglish', 'mr-latn': 'mr', minglish: 'mr' };
-function normLang(v) {
+function normLang(v: unknown): string | null {
   const s = String(v || '').trim().toLowerCase();
   if (!s) return null;
   if (LANG_NAMES[s]) return s;
@@ -25,7 +30,7 @@ const MR_LATN = /\b(aahe|ahe|aahet|pahije|dya|kiti|majha|maza|majhe|udya|liha|pa
 const HI_LATN = /\b(hai|hain|ka|ki|ke|ko|kya|kitna|kitne|karo|kar|dena|mera|mere|mujhe|nahi|nhi|chahiye|bhej|wala|vala|bhi|aur|tha|dunga|diya|diye|likho|yaar|bhaiya|ji|baki|baaki|kal|abhi|maine|aap|se|mein|men)\b/gi;
 const EN_WORDS = /\b(the|is|are|you|your|i|my|me|please|send|how|much|have|has|will|pay|paid|owe|what|when|where|can|need|want|and|of|to|in|stock|today|yesterday|tomorrow)\b/gi;
 /** The language by script and a few marker words: the fallback when no model answers. */
-function detectLang(text) {
+function detectLang(text: unknown): string | null {
   const s = String(text || '');
   if (/[஀-௿]/.test(s)) return 'ta';
   if (/[ఀ-౿]/.test(s)) return 'te';
@@ -42,25 +47,25 @@ function detectLang(text) {
   return hi > en || (hi && hi === en) ? 'hinglish' : en ? 'en' : 'hinglish';
 }
 /** The language a reply goes out in. Hindi heard in a voice note is answered in Hinglish (the script was the STT's choice, not the customer's). */
-function replyLang(lang, source) {
+function replyLang(lang: string | null | undefined, source?: string): string | null {
   if (!lang) return null;
   if (lang === 'hi' && source === 'voice') return 'hinglish';
   return lang;
 }
-const needsTranslation = (lang) => !!lang && lang !== 'hinglish';
+const needsTranslation = (lang: string | null | undefined) => !!lang && lang !== 'hinglish';
 
 // ------------------------------------------------------------------ intents
 const CUSTOMER_U = ['order', 'add_to_order', 'balance', 'payment_claim', 'promise', 'udhaar_request', 'confirm_yes', 'confirm_no', 'vouch', 'greeting', 'question', 'balance_dispute', 'correction', 'chitchat', 'abuse', 'opt_out'];
 const OWNER_U = ['udhaar', 'jama', 'list', 'list_edit', 'balance', 'summary', 'remind', 'remind_all', 'undo', 'set_phone', 'add_customer', 'remove_customer', 'restore_customer', 'promise', 'supplier', 'week', 'wholesale', 'help', 'chitchat', 'unknown'];
 // older or shorter names a model may use, and the khata's own names
-const ALIAS = { credit: 'udhaar', payment: 'jama', query: 'balance', pay_claim: 'payment_claim', abusive: 'abuse', paid: 'payment_claim', greet: 'greeting', complaint: 'question', add_item: 'add_to_order', addtoorder: 'add_to_order', other: 'unknown', irrelevant: 'chitchat', spam: 'chitchat', optout: 'opt_out', dispute: 'balance_dispute', claim: 'balance_dispute', balance_claim: 'balance_dispute', wrong_entry: 'balance_dispute', fix: 'correction' };
-const TO_CUSTOMER = { order: 'order', add_to_order: 'order', balance: 'balance', payment_claim: 'pay_claim', promise: 'promise', udhaar_request: 'question', confirm_yes: 'confirm_yes', confirm_no: 'confirm_no', vouch: 'vouch', greeting: 'greeting', question: 'question', balance_dispute: 'dispute', correction: 'correction', chitchat: 'chitchat', abuse: 'abusive', opt_out: 'opt_out' };
-const TO_OWNER = { udhaar: 'credit', jama: 'payment', list: 'credit', list_edit: 'unknown', balance: 'query', summary: 'summary', remind: 'remind', remind_all: 'remind_all', undo: 'undo', set_phone: 'set_phone', add_customer: 'set_phone', remove_customer: 'remove_customer', restore_customer: 'restore_customer', promise: 'promise', supplier: 'supplier', week: 'week', wholesale: 'wholesale', help: 'help', chitchat: 'help', unknown: 'unknown' };
+const ALIAS: Record<string, string> = { credit: 'udhaar', payment: 'jama', query: 'balance', pay_claim: 'payment_claim', abusive: 'abuse', paid: 'payment_claim', greet: 'greeting', complaint: 'question', add_item: 'add_to_order', addtoorder: 'add_to_order', other: 'unknown', irrelevant: 'chitchat', spam: 'chitchat', optout: 'opt_out', dispute: 'balance_dispute', claim: 'balance_dispute', balance_claim: 'balance_dispute', wrong_entry: 'balance_dispute', fix: 'correction' };
+const TO_CUSTOMER: Record<string, string> = { order: 'order', add_to_order: 'order', balance: 'balance', payment_claim: 'pay_claim', promise: 'promise', udhaar_request: 'question', confirm_yes: 'confirm_yes', confirm_no: 'confirm_no', vouch: 'vouch', greeting: 'greeting', question: 'question', balance_dispute: 'dispute', correction: 'correction', chitchat: 'chitchat', abuse: 'abusive', opt_out: 'opt_out' };
+const TO_OWNER: Record<string, string> = { udhaar: 'credit', jama: 'payment', list: 'credit', list_edit: 'unknown', balance: 'query', summary: 'summary', remind: 'remind', remind_all: 'remind_all', undo: 'undo', set_phone: 'set_phone', add_customer: 'set_phone', remove_customer: 'remove_customer', restore_customer: 'restore_customer', promise: 'promise', supplier: 'supplier', week: 'week', wholesale: 'wholesale', help: 'help', chitchat: 'help', unknown: 'unknown' };
 
 // ------------------------------------------------------------------ prompts
-const KEYS = ['lang', 'english', 'relevant', 'reason', 'intent', 'items', 'amount', 'person', 'phone', 'due_date', 'method', 'canon', 'confidence', 'ask'];
+const KEYS = ['lang', 'english', 'relevant', 'reason', 'intent', 'items', 'amount', 'person', 'entries', 'phone', 'due_date', 'method', 'canon', 'confidence', 'ask'];
 const FORMAT = 'Answer with ONE JSON object and nothing else, with exactly these keys:\n' +
-  '{"lang": "", "english": "", "relevant": true, "reason": "", "intent": "", "items": [], "amount": null, "person": "", "phone": "", "due_date": "", "method": "", "canon": "", "confidence": 0.9, "ask": ""}\n' +
+  '{"lang": "", "english": "", "relevant": true, "reason": "", "intent": "", "items": [], "amount": null, "person": "", "entries": [], "phone": "", "due_date": "", "method": "", "canon": "", "confidence": 0.9, "ask": ""}\n' +
   'lang: the language of the message: hinglish (Hindi in Latin letters), hi (Hindi in Devanagari), mr (Marathi, either script), en (English), or another ISO code (ta, te, bn, gu, kn, ml, pa, ur).\n' +
   'english: the message translated to plain English.\n' +
   'relevant: true if the message is about the shop (buying, udhaar, paying, the hisaab, a complaint, a real question); false for jokes, flirting, spam, abuse, random text. reason: a few words why.\n' +
@@ -68,21 +73,22 @@ const FORMAT = 'Answer with ONE JSON object and nothing else, with exactly these
   '(aata, cheeni, chaaval, daal, tel, doodh, sabun, shampoo, Parle-G, Maggi), brand and variant words kept (e.g. "anti dandruff shampoo"). ' +
   'qty: a number only if said. unit: kg, g, l, ml, pkt, pc, bottle, dozen or "". price: rupees only if the message says the price of that item, else null.\n' +
   'amount: rupees as a number only if the message states money, else null. Never guess an amount.\n' +
-  'person: the person named (with ji/bhai/didi if said), else "". phone: a 10-digit number if given, else "". due_date: YYYY-MM-DD for a promised payment day, else "". ' +
+  'person: the person named (with ji/bhai/didi if said), else "". entries: only when the message has amounts for TWO OR MORE different people, one ' +
+  '{"person": "", "amount": null, "type": "udhaar"} (type udhaar or jama) per person, else []. A person\'s name is never an item. phone: a 10-digit number if given, else "". due_date: YYYY-MM-DD for a promised payment day, else "". ' +
   'method: "cash" or "upi" when a payment is mentioned, else "".\n' +
   'confidence: 0 to 1, how sure you are about intent. ask: "" when clear; else ONE short question back, in the same language as the message.';
 
 const WEEKDAY_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-function nextWeekday(today, dow) {
+function nextWeekday(today: string, dow: number): string {
   const d = new Date(today + 'T00:00:00Z');
   const add = ((dow - d.getUTCDay()) + 7) % 7 || 7;
   return new Date(d.getTime() + add * 864e5).toISOString().slice(0, 10);
 }
-const shot = (o) => JSON.stringify(Object.assign({ lang: 'hinglish', english: '', relevant: true, reason: '', intent: '', items: [], amount: null, person: '', phone: '', due_date: '', method: '', canon: '', confidence: 0.9, ask: '' }, o));
-const it = (name, qty, unit, price) => ({ name, qty: qty == null ? null : qty, unit: unit || '', price: price == null ? null : price });
+const shot = (o: Shot[1]) => JSON.stringify(Object.assign({ lang: 'hinglish', english: '', relevant: true, reason: '', intent: '', items: [], amount: null, person: '', entries: [], phone: '', due_date: '', method: '', canon: '', confidence: 0.9, ask: '' }, o));
+const it = (name: string, qty?: number | null, unit?: string, price?: number) => ({ name, qty: qty == null ? null : qty, unit: unit || '', price: price == null ? null : price });
 
 /** Real messages from the shop's WhatsApp (18 Oct) plus Marathi, Hindi, English and junk. */
-function customerShots(today) {
+function customerShots(today: string): Shot[] {
   const fri = nextWeekday(today, 5);
   return [
     ['Shampoo bhi tha yaar usako bhi add karo', { english: 'There was shampoo too, add that as well', reason: 'adds an item to the order', intent: 'add_to_order', items: [it('shampoo')] }],
@@ -104,7 +110,7 @@ function customerShots(today) {
     ['Nhi chahiye gupta kirana se kuch bhi mujhe', { english: 'I do not want anything from Gupta Kirana', reason: 'wants no messages', intent: 'opt_out' }]
   ];
 }
-function ownerShots(today) {
+function ownerShots(today: string): Shot[] {
   const fri = nextWeekday(today, 5);
   return [
     ['sharma ji ne 400ka saman kiya', { english: 'Sharma ji took goods worth 400', reason: 'udhaar entry', intent: 'udhaar', amount: 400, person: 'Sharma ji', canon: 'Sharma ji ne 400 ka saman liya' }],
@@ -117,13 +123,15 @@ function ownerShots(today) {
     ['krish wali list se doodh nikal do', { english: "Remove milk from Krish's list", reason: 'changes a list already written', intent: 'list_edit', person: 'Krish', items: [it('doodh')], canon: 'Krish ki list se doodh hata do' }],
     ['Agrawal traders ko order: 10 kilo cheeni, 5 kilo aata', { english: 'Order to Agrawal Traders: 10 kg sugar, 5 kg flour', reason: 'stock order', intent: 'wholesale', person: 'Agrawal Traders', items: [it('cheeni', 10, 'kg'), it('aata', 5, 'kg')], canon: 'Agrawal Traders ko order: 10 kilo cheeni, 5 kilo aata' }],
     ['Ramesh ka naya khata kholo, number 9876543210', { english: 'Open a new khata for Ramesh, number 9876543210', reason: 'new customer', intent: 'add_customer', person: 'Ramesh', phone: '9876543210', canon: 'Ramesh ka number 9876543210' }],
+    ['verma ka 250 aur pappu ka 120 likh do', { english: 'Write 250 for Verma and 120 for Pappu', reason: 'two people, two udhaar entries', intent: 'udhaar', entries: [{ person: 'Verma ji', amount: 250, type: 'udhaar' }, { person: 'Pappu', amount: 120, type: 'udhaar' }], canon: '' }],
+    ['galti ho gayi sharma ji ka 340 nahi 430 tha', { english: 'Mistake: Sharma ji\'s entry was 430, not 340', reason: 'fixes the amount of Sharma ji\'s own entry', intent: 'undo', person: 'Sharma ji', amount: 430, canon: '' }],
     ['Pappu ko hatao', { english: 'Remove Pappu', reason: 'remove customer', intent: 'remove_customer', person: 'Pappu', canon: 'Pappu ko hatao' }],
     ['haan wo... uska... kal wala', { english: 'yes that... his... yesterday one', relevant: true, reason: 'too unclear', intent: 'unknown', confidence: 0.2, ask: 'Kiska aur kitne ka hisaab likhun?' }]
   ];
 }
 
-function pastTurns(shots) {
-  const out = [];
+function pastTurns(shots: Shot[]): ChatMsg[] {
+  const out: ChatMsg[] = [];
   for (const [u, a] of shots) out.push({ role: 'user', content: u }, { role: 'assistant', content: shot(a) });
   return out;
 }
@@ -133,17 +141,17 @@ function pastTurns(shots) {
  * ctx: { asking: text of the question the shop is waiting on, order: open order text,
  *        history: [{who: 'shop'|'customer', text}] (last few messages), dispute: open "galat" label, balance, entries: [text] }
  */
-function customerContext(ctx) {
-  const lines = [];
+function customerContext(ctx: CustomerCtx): string {
+  const lines: string[] = [];
   if (ctx.balance != null) lines.push('Their khata balance now: ' + (ctx.balance < 0 ? 'Rs 0 owed (Rs ' + -ctx.balance + ' paid in advance)' : 'Rs ' + ctx.balance + ' owed') + '.');
   if (ctx.entries && ctx.entries.length) lines.push('Last entries: ' + ctx.entries.join('; ') + '.');
   if (ctx.dispute) lines.push('Open dispute: the customer said "galat" (wrong) about ' + ctx.dispute + '; the owner has not settled it yet.');
   if (ctx.history && ctx.history.length) lines.push('Recent conversation (oldest first):\n' + ctx.history.map((h) => (h.who === 'shop' ? 'Shop bot: ' : 'Customer: ') + h.text).join('\n'));
   return lines.length ? '\nContext, to understand the new message (do not answer it):\n' + lines.join('\n') + '\n' : '';
 }
-function customerMessages(state, c, text, ctx) {
+function customerMessages(state: State, c: Customer, text: unknown, ctx?: CustomerCtx | null): ChatMsg[] {
   ctx = ctx || {};
-  const shop = state.shop || {};
+  const shop: Partial<State['shop']> = state.shop || {};
   const known = C.rateList(state).slice(0, 40).map((r) => r.name).join(', ');
   const system = 'You read ONE WhatsApp message that a CUSTOMER sent to ' + (shop.name || 'a kirana shop') + ', a small neighbourhood kirana (grocery) shop in ' + (shop.city || 'India') +
     ' that gives regular households goods on udhaar (credit). The customer may write or speak (voice-note transcript with misheard words) in any Indian language or English, in any script.\n' +
@@ -156,7 +164,7 @@ function customerMessages(state, c, text, ctx) {
     'payment_claim = says they ALREADY paid money ("cash de diya", "UPI kar diya", "paid 200"). Not money (photos, insults, jokes) is never payment_claim. "Kal dunga" is promise;\n' +
     'promise = will pay later or names a day; udhaar_request = asks to write their purchase on credit / in the khata;\n' +
     'confirm_yes / confirm_no = says an entry, bill or question is right / wrong (haan, ho, yes / galat, nahi, no);\n' +
-    'vouch = vouches for a new person with their phone number; greeting = only a greeting;\n' +
+    (C.FEATURES.vouch ? 'vouch = vouches for a new person with their phone number; ' : '') + 'greeting = only a greeting;\n' +
     'balance_dispute = says their balance or an entry is wrong, or claims a different total ("mera udhaar bas 40 hai", "itna nahi liya", "maine 162 ka nahi liya"); amount = the amount THEY claim;\n' +
     'correction = corrects a detail of an earlier order or entry ("daal nahi chaaval tha", "2 nahi 1 kilo", "daal ka de diya tha, aata baaki");\n' +
     'question = any other real message that needs the shopkeeper (complaint, availability, delivery, a question);\n' +
@@ -166,8 +174,8 @@ function customerMessages(state, c, text, ctx) {
   return [{ role: 'system', content: system }].concat(pastTurns(customerShots(state.today)), [{ role: 'user', content: String(text) }]);
 }
 
-function ownerMessages(state, text) {
-  const shop = state.shop || {};
+function ownerMessages(state: State, text: unknown): ChatMsg[] {
+  const shop: Partial<State['shop']> = state.shop || {};
   const names = C.live(state).map((c) => c.name).join(', ') || '(none yet)';
   const sups = [...new Set((state.supplies || []).map((k) => k.name))].join(', ') || '(none yet)';
   const whs = (state.wholesalers || []).map((w) => w.name + (w.items && w.items.length ? ' (' + w.items.join(', ') + ')' : '')).join('; ') || '(none yet)';
@@ -179,7 +187,7 @@ function ownerMessages(state, text) {
     'intent, exactly one of:\n' +
     'udhaar = someone took goods or money on credit; jama = someone paid the shop back; list = an item-by-item list for one person (items with prices as said); list_edit = change a list ALREADY written for one person (add / remove an item, fix a price, or replace it);\n' +
     'balance = one person\'s baaki; summary = the overall hisaab (aaj ka hisaab, kaun kaun baaki); remind = remind one person; remind_all = remind everyone who owes;\n' +
-    'undo = cancel the last entry; set_phone = save a person\'s number; add_customer = open a new khata; remove_customer / restore_customer = "<name> ko hatao" / "<name> ko wapas lao";\n' +
+    'undo = cancel or fix an entry (person = whose entry; a fix like "340 nahi 430 tha" is undo with that person, never another person\'s entry); set_phone = save a person\'s number; add_customer = open a new khata; remove_customer / restore_customer = "<name> ko hatao" / "<name> ko wapas lao";\n' +
     'promise = a person will pay on a day (no new goods); supplier = the SHOP\'s own udhaar with a wholesaler or trader (maal udhaar, paid the trader, kisko kitna dena hai); week = this week\'s hisaab;\n' +
     'wholesale = ordering stock for the shop from a wholesaler, a wholesaler\'s number, who supplies what, "maal aa gaya", "wholesaler list";\n' +
     'help = asks what you can do; chitchat = greeting or small talk; unknown = anything else or too garbled.\n' +
@@ -190,13 +198,14 @@ function ownerMessages(state, text) {
 }
 
 // ------------------------------------------------------------------ validation
-const str = (v, max) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
-const num = (v) => { const n = typeof v === 'string' ? parseFloat(v.replace(/[₹,\s]/g, '')) : v; return typeof n === 'number' && isFinite(n) && n > 0 ? n : null; };
-const UNIT_OK = { kg: 'kg', kilo: 'kg', kgs: 'kg', g: 'g', gm: 'g', gram: 'g', grams: 'g', l: 'l', ltr: 'l', litre: 'l', liter: 'l', ml: 'ml', pkt: 'pkt', packet: 'pkt', pack: 'pkt', pouch: 'pkt', pc: 'pc', pcs: 'pc', piece: 'pc', pieces: 'pc', bottle: 'bottle', dozen: 'dozen' };
-function cleanItems(v) {
+const str = (v: unknown, max: number) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
+const num = (v: unknown) => { const n = typeof v === 'string' ? parseFloat(v.replace(/[₹,\s]/g, '')) : v; return typeof n === 'number' && isFinite(n) && n > 0 ? n : null; };
+const UNIT_OK: Record<string, string> = { kg: 'kg', kilo: 'kg', kgs: 'kg', g: 'g', gm: 'g', gram: 'g', grams: 'g', l: 'l', ltr: 'l', litre: 'l', liter: 'l', ml: 'ml', pkt: 'pkt', packet: 'pkt', pack: 'pkt', pouch: 'pkt', pc: 'pc', pcs: 'pc', piece: 'pc', pieces: 'pc', bottle: 'bottle', dozen: 'dozen' };
+// v and its entries are the model's raw JSON, so they are `any` until checked field by field below.
+function cleanItems(v: any): UnderstoodItem[] {
   if (typeof v === 'string') return v.trim() ? [{ name: str(v, 80), qty: null, unit: null, price: null, loose: true }] : [];
   if (!Array.isArray(v)) return [];
-  const out = [];
+  const out: UnderstoodItem[] = [];
   for (const x of v.slice(0, 20)) {
     const o = typeof x === 'string' ? { name: x } : x && typeof x === 'object' ? x : null;
     const name = o && str(o.name || o.item || '', 60).replace(/^[\s\-•*]+/, '');
@@ -206,11 +215,17 @@ function cleanItems(v) {
   }
   return out;
 }
+function cleanEntries(v: any): UnderstoodEntry[] {
+  if (!Array.isArray(v)) return [];
+  return v.slice(0, 10).map((e: any): UnderstoodEntry | null => e && typeof e === 'object' ? { person: str(e.person || e.name || '', 60), amount: num(e.amount), type: /jama|payment|paid/i.test(str(e.type, 12)) ? 'jama' : 'udhaar' } : null)
+    .filter((e: UnderstoodEntry | null) => e && e.person && e.amount) as UnderstoodEntry[];
+}
 /**
  * The model's JSON, checked against the schema. Throws (so the next provider, then the rules, answer) when the
  * intent is not one this role allows. Missing optional keys get safe empty values.
  */
-function normalize(j, role) {
+// j is the model's parsed JSON reply (any shape), checked key by key here.
+function normalize(j: any, role: string): Understanding {
   if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error('LLM reply is not an object');
   let intent = str(j.intent, 40).toLowerCase().replace(/[\s-]+/g, '_');
   intent = ALIAS[intent] || intent;
@@ -228,13 +243,14 @@ function normalize(j, role) {
   return {
     lang: normLang(j.lang || j.language), english: str(j.english, 400), relevant, reason: str(j.reason, 120), intent,
     items: cleanItems(j.items), amount: num(j.amount), person, phone, dueDate: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : '', method,
-    canon: str(j.canon, 300), confidence: conf, ask: str(j.ask, 160)
+    canon: str(j.canon, 300), confidence: conf, ask: str(j.ask, 160), entries: cleanEntries(j.entries)
   };
 }
 
 // ------------------------------------------------------------------ to the khata's intents
 /** A customer's understanding as handleCustomerMessage's intent (safety rules applied in agent-core). */
-function toCustomerIntent(u, text) {
+function toCustomerIntent(u: Understanding, text: string): CustomerIntent | null {
+  if (u.intent === 'vouch' && !C.FEATURES.vouch) u = Object.assign({}, u, { intent: 'question' });
   const ci = C.customerIntentFromLlm({ intent: TO_CUSTOMER[u.intent], method: u.method, amount: u.amount || 0 }, text);
   if (!ci) return null;
   // a payment needs payment words in the message itself; in a script the rules cannot read (Gujarati, Tamil, ...)
@@ -248,7 +264,7 @@ function toCustomerIntent(u, text) {
   });
 }
 /** An owner's understanding as applyIntent's intent. The amount must be stated in the message (intentFromLlm drops it otherwise). */
-function toOwnerIntent(u, text) {
+function toOwnerIntent(u: Understanding, text: string): OwnerIntent {
   const items = u.items.map((x) => x.loose ? x.name : [x.name, x.qty != null ? x.qty + (x.unit ? ' ' + x.unit : '') : '', x.price != null ? x.price : ''].filter((p) => p !== '').join(' ')).join(', ');
   const oi = C.intentFromLlm({ intent: TO_OWNER[u.intent], name: u.person, items, amount: u.amount || 0, due_date: u.dueDate, phone: u.phone, canon: u.canon, ask: u.ask }, text);
   if (u.intent === 'add_customer') oi.create = true;
@@ -256,23 +272,23 @@ function toOwnerIntent(u, text) {
 }
 
 // ------------------------------------------------------------------ rules (fallback, and the eval's baseline)
-const OWNER_FROM_RULES = { credit: 'udhaar', payment: 'jama', query: 'balance', summary: 'summary', remind: 'remind', remind_all: 'remind_all', undo: 'undo', set_phone: 'set_phone', promise: 'promise', help: 'help', remove_customer: 'remove_customer', restore_customer: 'restore_customer', choice: 'unknown', unknown: 'unknown' };
-const CUSTOMER_FROM_RULES = { dispute: 'balance_dispute', correction: 'correction', order: 'order', balance: 'balance', pay_claim: 'payment_claim', promise: 'promise', confirm_yes: 'confirm_yes', confirm_no: 'confirm_no', vouch: 'vouch', greeting: 'greeting', question: 'question', chitchat: 'chitchat', abusive: 'abuse', opt_out: 'opt_out' };
+const OWNER_FROM_RULES: Record<string, string> = { credit: 'udhaar', payment: 'jama', query: 'balance', summary: 'summary', remind: 'remind', remind_all: 'remind_all', undo: 'undo', set_phone: 'set_phone', promise: 'promise', help: 'help', remove_customer: 'remove_customer', restore_customer: 'restore_customer', choice: 'unknown', unknown: 'unknown' };
+const CUSTOMER_FROM_RULES: Record<string, string> = { dispute: 'balance_dispute', correction: 'correction', order: 'order', balance: 'balance', pay_claim: 'payment_claim', promise: 'promise', confirm_yes: 'confirm_yes', confirm_no: 'confirm_no', vouch: 'vouch', greeting: 'greeting', question: 'question', chitchat: 'chitchat', abusive: 'abuse', opt_out: 'opt_out' };
 /** What the regex rules make of a message, in the same shape as a model's answer. */
-function rulesUnderstand(state, role, text, c) {
+function rulesUnderstand(state: State, role: string, text: string, c?: Customer) {
   const lang = detectLang(text);
   if (role === 'owner') {
-    let intent, wsLines = [];
+    let intent: string, wsLines: { name: string; qty?: number | null; unit?: string | null; price?: number | null }[] = [];
     const le = C.listEditIntent(state, text);
     const li = !le && C.listIntent(state, text), ws = !le && !li && C.parseWholesale(state, text);
     if (le) intent = 'list_edit';
     else if (li) intent = 'list';
     else if (ws) { intent = 'wholesale'; wsLines = (ws.groups || []).reduce((a, g) => a.concat(g.lines || []), ws.lines || []); }
     else if (C.parseSupplier(state, text)) intent = 'supplier';
-    else if (C.removeIntent(state, text)) intent = C.removeIntent(state, text).intent;
+    else if (C.removeIntent(state, text)) intent = C.removeIntent(state, text)!.intent;
     else intent = OWNER_FROM_RULES[C.parseOwnerMessage(text, state.today).intent] || 'unknown';
     const p = C.parseOwnerMessage(text, state.today);
-    return { lang, english: '', relevant: intent !== 'unknown', intent, items: (li ? li.lineParse.lines : wsLines).map((l) => ({ name: l.name, qty: l.qty, unit: l.unit, price: l.price })), amount: p.amount, person: le ? le.name : li ? li.name || p.name : p.name, parser: 'rules' };
+    return { lang, english: '', relevant: intent !== 'unknown', intent, items: (li ? li.lineParse!.lines : wsLines).map((l) => ({ name: l.name, qty: l.qty, unit: l.unit, price: l.price })), amount: p.amount, person: le ? le.name : li ? li.name || p.name : p.name, parser: 'rules' };
   }
   const ci = C.customerIntentRules(state, c, text);
   const pre = C.customerPrefilter(text);
@@ -285,7 +301,7 @@ function rulesUnderstand(state, role, text, c) {
 }
 
 // ------------------------------------------------------------------ replies in the customer's language
-function translateMessages(text, lang) {
+function translateMessages(text: unknown, lang: string): ChatMsg[] {
   const name = LANG_NAMES[lang] || lang;
   return [
     { role: 'system', content: 'You translate WhatsApp messages from a small Indian kirana shop to its customer. Translate the message into ' + name + '. ' +
@@ -295,11 +311,12 @@ function translateMessages(text, lang) {
     { role: 'user', content: String(text) }
   ];
 }
-const toWesternDigits = (s) => String(s).replace(/[०-९]/g, (d) => String(d.charCodeAt(0) - 0x966)).replace(/[০-৯]/g, (d) => String(d.charCodeAt(0) - 0x9E6))
+const toWesternDigits = (s: unknown) => String(s).replace(/[०-९]/g, (d) => String(d.charCodeAt(0) - 0x966)).replace(/[০-৯]/g, (d) => String(d.charCodeAt(0) - 0x9E6))
   .replace(/[૦-૯]/g, (d) => String(d.charCodeAt(0) - 0xAE6)).replace(/[௦-௯]/g, (d) => String(d.charCodeAt(0) - 0xBE6));
-const numbersIn = (s) => (toWesternDigits(s).replace(/(\d),(?=\d)/g, '$1').match(/\d+(\.\d+)?/g) || []).sort().join(' ');
+const numbersIn = (s: unknown) => (toWesternDigits(s).replace(/(\d),(?=\d)/g, '$1').match(/\d+(\.\d+)?/g) || []).sort().join(' ');
 /** A translation is used only when it keeps every number, every *starred* word and a sane length; else the Hinglish original goes. */
-function checkTranslation(orig, j) {
+// j is the model's parsed JSON reply.
+function checkTranslation(orig: unknown, j: any): string {
   const t = j && typeof j.text === 'string' ? j.text.trim() : '';
   if (!t) throw new Error('empty translation');
   if (numbersIn(orig) !== numbersIn(t)) throw new Error('translation changed a number');
@@ -309,7 +326,7 @@ function checkTranslation(orig, j) {
   return toWesternDigits(t);
 }
 
-module.exports = {
+export {
   LANG_NAMES, CUSTOMER_U, OWNER_U, KEYS, detectLang, normLang, replyLang, needsTranslation,
   customerMessages, ownerMessages, normalize, toCustomerIntent, toOwnerIntent, rulesUnderstand,
   translateMessages, checkTranslation, numbersIn, customerShots, ownerShots

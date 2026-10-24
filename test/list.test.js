@@ -7,8 +7,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
-const C = require('../core/agent-core.js');
-const { createServer } = require('../server/server.js');
+const C = require('../dist-server/core/agent-core.js');
+const { createServer } = require('../dist-server/server/server.js');
 
 const TODAY = '2026-10-08';
 fs.existsSync(path.join(__dirname, '../dist/udhaar-agent-standalone.html')) || require('../build.js');
@@ -213,6 +213,8 @@ test('WhatsApp text list with the AI on: the AI reads it, the list is still writ
     const asked = calls.filter((u) => u.endsWith('/chat/completions')).length;
     await inbound(wmsg(OWNER, txt('10')));
     assert.equal(calls.filter((u) => u.endsWith('/chat/completions')).length, asked, 'the answer to "kitne ka?" needs no AI call');
+    assert.match(lib.texts(OWNER).join('\n'), /"Krish" naya grahak hai\?/);
+    await inbound(wmsg(OWNER, txt('haan'))); // a new name opens a khata only after the owner's haan
     assert.equal(server.getState().txns.find((x) => x.via === 'list').amount, 90);
     assert.match(lib.texts(OWNER).join('\n'), /📵 Krish ka number nahi hai, sirf khate mein likha/);
     // Krish has a number now but never wrote to the shop: nothing goes to him and the owner knows why

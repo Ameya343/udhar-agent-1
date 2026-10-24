@@ -1,19 +1,25 @@
 // What the shop's AI does with one message: understand it (core/understand.js prompts, server/llm.js provider chain),
 // and put the agent's replies to a customer into that customer's language. Every step has a rules fallback, so the
 // shop keeps working with no model at all.
-'use strict';
-const C = require('../core/agent-core.js');
-const U = require('../core/understand.js');
-const { createLlm } = require('./llm.js');
+import C = require('../core/agent-core');
+import U = require('../core/understand');
+import { createLlm, LlmOpts } from './llm';
+import type { State, OwnerIntent, CustomerIntent, Customer, Understanding } from '../core/types';
 
-function createBrain(opts) {
+export interface BrainOpts { env?: LlmOpts['env']; fetch?: LlmOpts['fetch']; getState: () => State }
+/** Where a message came from and what the speech-to-text heard, when it was a voice note. */
+export interface HeardOpts { heard?: string | null; source?: string }
+type Understood<T> = T & { provider?: string; ms?: number; u?: Understanding };
+export type Brain = ReturnType<typeof createBrain>;
+
+function createBrain(opts: BrainOpts) {
   const env = opts.env || {};
   const getState = opts.getState;
   const llm = createLlm({ env, fetch: opts.fetch });
-  const cache = new Map(); // lang + text -> translation; menus and receipts repeat a lot
+  const cache = new Map<string, string>(); // lang + text -> translation; menus and receipts repeat a lot
 
   /** The owner's message. Answers to the agent's own questions (a number, a rate, haan / nahi) and UPI SMS keep their exact parsers. */
-  async function understandOwner(text, o) {
+  async function understandOwner(text: string, o?: HeardOpts): Promise<Understood<OwnerIntent>> {
     o = o || {};
     const state = getState();
     const rules = C.parseOwnerMessage(text, state.today);
@@ -21,14 +27,14 @@ function createBrain(opts) {
     if (!llm.enabled || rules.intent === 'choice' || answering || C.looksLikeUpiSms(text) || C.looksLikeCounter(text)) return rules;
     try {
       const r = await llm.chatJson(U.ownerMessages(state, o.heard || text), { maxTokens: 500, validate: (j) => U.normalize(j, 'owner') });
-      const oi = U.toOwnerIntent(r.value, text);
+      const oi: Understood<OwnerIntent> = U.toOwnerIntent(r.value, text);
       oi.provider = r.provider; oi.ms = r.ms; oi.u = r.value;
       return oi;
     } catch (e) { return rules; }
   }
 
   /** A customer's message. Null means "the strict rules decide" (emoji, abuse and opt-out never reach the model). */
-  async function understandCustomer(text, custId, o) {
+  async function understandCustomer(text: string, custId: string, o?: HeardOpts): Promise<Understood<CustomerIntent> | null> {
     o = o || {};
     const state = getState();
     const c = state.customers.find((x) => x.id === custId);
@@ -41,7 +47,7 @@ function createBrain(opts) {
     }); // the last messages both ways, an open "galat", the balance and last entries: a reply is read in its conversation
     try {
       const r = await llm.chatJson(U.customerMessages(state, c, o.heard || text, ctx), { maxTokens: 500, validate: (j) => U.normalize(j, 'customer') });
-      const ci = U.toCustomerIntent(r.value, text);
+      const ci: Understood<CustomerIntent> | null = U.toCustomerIntent(r.value, text);
       if (!ci) return null;
       ci.lang = U.replyLang(ci.lang, o.source);
       ci.provider = r.provider; ci.ms = r.ms; ci.u = r.value;
@@ -50,21 +56,22 @@ function createBrain(opts) {
   }
 
   /** One message in another language; the Hinglish original when the model fails or changes a number. */
-  async function translate(text, lang) {
+  async function translate(text: string, lang: string | null | undefined): Promise<string | null> {
     if (!llm.enabled || !U.needsTranslation(lang) || !/[a-z]/i.test(text)) return null;
     const key = lang + '\n' + text;
-    if (cache.has(key)) return cache.get(key);
+    if (cache.has(key)) return cache.get(key)!;
     try {
-      const r = await llm.chatJson(U.translateMessages(text, lang), { maxTokens: 700, validate: (j) => U.checkTranslation(text, j) });
-      if (cache.size > 300) cache.delete(cache.keys().next().value);
+      const r = await llm.chatJson(U.translateMessages(text, lang!), { maxTokens: 700, validate: (j) => U.checkTranslation(text, j) });
+      if (cache.size > 300) cache.delete(cache.keys().next().value!);
       cache.set(key, r.value);
       return r.value;
     } catch (e) { return null; }
   }
 
   /** Every agent message to a customer since index `from`, in that customer's language (the original is kept as textOrig). */
-  async function translateOut(state, from) {
-    const jobs = [];
+  async function translateOut(state: State, from: number): Promise<void> {
+    const jobs: Promise<void>[] = [];
+
     for (const m of state.messages.slice(from)) {
       if (m.from !== 'agent' || m.to === 'owner' || m.textOrig) continue;
       const c = state.customers.find((x) => x.id === m.to);
@@ -77,4 +84,4 @@ function createBrain(opts) {
   return { llm, understandOwner, understandCustomer, translate, translateOut };
 }
 
-module.exports = { createBrain };
+export { createBrain };

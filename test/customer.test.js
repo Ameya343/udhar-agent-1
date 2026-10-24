@@ -7,9 +7,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const http = require('http');
-const C = require('../core/agent-core.js');
-const { createServer } = require('../server/server.js');
-const { twilioSignature } = require('../server/whatsapp.js');
+const C = require('../dist-server/core/agent-core.js');
+const { createServer } = require('../dist-server/server/server.js');
+const { fakeWeb } = require('./fake-wa.js');
 
 const TODAY = '2026-10-18';
 const T0 = Date.UTC(2026, 9, 18, 6, 0, 0);
@@ -56,7 +56,7 @@ test('rules: real payment words still make a claim ("maine 200 de diye", "Upi de
   C.runAction(s, 'owner', { text: 'krish ne 500 ka saman liya' });
   for (const t of ['maine 200 de diye', 'Upi de diya', 'paid', '200 bhej diye', 'मैंने 200 दे दिए', 'payment kar diya', 'jama kar diya']) assert.strictEqual(C.customerIntentRules(s, c, t).intent, 'pay_claim', t);
   for (const t of ['kal dunga', 'Friday ko de dunga', 'I\'ll pay via only fans', 'Gupta ji pe mera 5000 rupaye udhar hai']) assert.notStrictEqual(C.customerIntentRules(s, c, t).intent, 'pay_claim', t);
-  const r = say(s, c, 'maine 200 de diye', T0);
+  const r = say(s, c, 'maine 200 gpay kar diya', T0);
   assert.match(r.toCust[0].text, /Payment aate hi khata update/);
   assert.strictEqual(r.toOwner.length, 1);
   assert.match(r.toOwner[0].text, /Krish Singh keh rahe hain unhone ₹200 pay kar diya/);
@@ -142,14 +142,14 @@ test('LLM intent (mocked): chit-chat stays quiet, "maine 200 de diye" is a claim
   assert.strictEqual(r.toOwner.length, 1, 'downgraded to a question for the shopkeeper');
   assert.doesNotMatch(r.toOwner[0].text, /pay kar diya/);
   assert.strictEqual(llm({ intent: 'pay_claim', method: 'upi', amount: 0 }, 'Rand de diya hai').intent, 'abusive');
-  r = say(s, c, 'maine 200 de diye', T0 + 2 * MIN, llm({ intent: 'pay_claim', method: 'upi', amount: 200 }, 'maine 200 de diye'));
+  r = say(s, c, 'maine 200 bhej diye', T0 + 2 * MIN, llm({ intent: 'pay_claim', method: 'upi', amount: 200 }, 'maine 200 bhej diye'));
   assert.match(r.toOwner[0].text, /keh rahe hain unhone ₹200 pay kar diya/);
   r = say(s, c, 'bhaiya hisaab bhejo', T0 + 3 * MIN, llm({ intent: 'balance', method: '', amount: 0 }, 'bhaiya hisaab bhejo'));
   assert.strictEqual(r.toCust[0].kind, 'statement');
   assert.strictEqual(llm({ intent: 'transfer_all', method: '', amount: 0 }, 'x'), null, 'unknown intent: rules decide');
 });
 
-// ---------------------------------------------------------------- end to end: WhatsApp (Twilio) + a mocked LLM
+// ---------------------------------------------------------------- end to end: WhatsApp (linked device) + a mocked LLM
 const PUBLIC = 'https://gupta.example.org', OWNER = '+919800000001', KRISH_NO = '+919022099109', PUSH_NO = '+917020498571';
 function listen(server) { return new Promise((r) => server.listen(0, '127.0.0.1', () => r('http://127.0.0.1:' + server.address().port))); }
 // what the real model says for the 18 Oct chatter (relevant=false); anything relevant now always reaches the owner
@@ -167,25 +167,21 @@ function fakeNet(llmDown) {
       const content = isCustomer ? { intent: LLM_SAYS[user] || 'question', method: LLM_SAYS[user] === 'pay_claim' ? 'upi' : '', amount: /200/.test(user) ? 200 : 0 } : { intent: 'unknown', name: '', items: '', amount: 0, due_date: '', phone: '' };
       return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }), { status: 200 });
     }
-    if (url.includes('/Messages.json')) { const p = new URLSearchParams(init.body); sent.push({ to: p.get('To').replace('whatsapp:', ''), body: p.get('Body') }); return new Response('{}', { status: 201 }); }
     return new Response('{}', { status: 404 });
   };
   f.sent = sent; f.llmCalls = llmCalls;
   f.to = (n) => sent.filter((x) => x.to === n).map((x) => x.body);
   return f;
 }
-async function inbound(base, server, fields) {
-  const params = Object.assign({ MessageSid: 'SM' + Math.random().toString(16).slice(2), NumMedia: '0' }, fields);
-  const sig = twilioSignature('secret-token', PUBLIC + '/whatsapp', params);
-  await fetch(base + '/whatsapp', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-twilio-signature': sig }, body: new URLSearchParams(params).toString() });
-  await server.idle();
-}
+function inbound(base, server, fields) { return server.fakeWeb.inbound(server, fields); }
 
 for (const llmDown of [false, true]) {
   test('WhatsApp end to end, LLM ' + (llmDown ? 'down (rules)' : 'up (mocked)') + ': the 18 Oct conversation, replayed', async () => {
     const net = fakeNet(llmDown);
-    const server = createServer({ env: { SHOP: 'gupta', DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'udhaar-cust-')), TWILIO_ACCOUNT_SID: 'ACtest', TWILIO_AUTH_TOKEN: 'secret-token',
-      TWILIO_WHATSAPP_FROM: 'whatsapp:+14155238886', OWNER_WHATSAPP: OWNER, PUBLIC_URL: PUBLIC, AGENT37_LLM_PROXY_URL: 'https://llm.example.org/v1' }, today: () => TODAY, fetch: net });
+    const web = fakeWeb((to, c) => net.sent.push({ to: '+' + to, body: c.text }));
+    const server = createServer({ env: { SHOP: 'gupta', DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'udhaar-cust-')), WA_PROVIDER: 'web',
+      OWNER_WHATSAPP: OWNER, PUBLIC_URL: PUBLIC, AGENT37_LLM_PROXY_URL: 'https://llm.example.org/v1' }, today: () => TODAY, fetch: net, webTransport: web.factory });
+    server.fakeWeb = web;
     const base = await listen(server);
     try {
       await inbound(base, server, { From: 'whatsapp:' + KRISH_NO, ProfileName: 'Krish Singh', Body: 'hi' });
@@ -200,9 +196,12 @@ for (const llmDown of [false, true]) {
       assert.ok(ownerNow.length <= 1, 'at most the one "bekaar message" note: ' + ownerNow.join(' | '));
       assert.ok(!net.llmCalls.some((u) => /😂|Lund|Chut|Nudes|Rand|Gaand/.test(u)), 'emoji and abuse never reach the LLM');
       // a real claim still works, once
+      // "maine 200 de diye" (no UPI word): a ₹200 cash claim, noted once; the repeat is not a second claim
       await inbound(base, server, { From: 'whatsapp:' + KRISH_NO, Body: 'maine 200 de diye' });
       await inbound(base, server, { From: 'whatsapp:' + KRISH_NO, Body: 'maine 200 de diye' });
-      assert.strictEqual(net.to(OWNER).filter((b) => /Krish Singh keh rahe hain unhone ₹200 pay kar diya/.test(b)).length, 1);
+      const kc = C.pendingClaims(server.getState()).filter((k) => k.custId === server.getState().customers.find((x) => x.phone === KRISH_NO.slice(-10)).id);
+      assert.strictEqual(kc.length, 1); assert.strictEqual(kc[0].amount, 200);
+      assert.ok(net.to(KRISH_NO).some((b) => /₹200 cash note kar liya/.test(b)));
       // the new number: opt-out, then abuse; nothing raw reaches the owner and nothing more goes to the number
       await inbound(base, server, { From: 'whatsapp:' + PUSH_NO, ProfileName: 'Pushpansh Tayal', Body: 'hi' });
       const pushBefore = net.to(PUSH_NO).length, ownerMid = net.to(OWNER).length;

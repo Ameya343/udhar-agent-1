@@ -1,10 +1,23 @@
 {
   "name": "udhaar-agent",
   "private": true,
-  "description": "Udhaar Agent shop server. The only dependency is the WhatsApp Web library for WA_PROVIDER=web.",
-  "engines": { "node": ">=22" },
-  "scripts": { "test": "node --test test/*.test.js" },
+  "description": "Udhaar Agent shop server. Dependencies: the WhatsApp Web library (WA_PROVIDER=web) and pg (DATABASE_URL).",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node build.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist-server/server/server.js",
+    "test": "npm run build && node --test test/*.test.js"
+  },
   "dependencies": {
-    "@whiskeysockets/baileys": "7.0.0-rc14"
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "pg": "8.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/pg": "8.23.1",
+    "typescript": "5.9.3"
   }
 }

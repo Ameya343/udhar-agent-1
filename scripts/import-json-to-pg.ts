@@ -1,0 +1,35 @@
+#!/usr/bin/env node
+// Imports a JSON khata (data/<shop>.json) into Postgres under a shop_id.
+//   DATABASE_URL=... node dist-server/scripts/import-json-to-pg.js <file.json> <shop_id> [--apply] [--force]
+// With STORE=pg-schema it writes the shop's own schema; with STORE=pg-tables it writes the normalised tables (running migrations first); otherwise the shop_state row.
+// Dry run by default: validates the file and says what would happen. --apply writes it.
+// An existing row for the shop is never overwritten unless --force is given.
+import fs = require('fs');
+import { makerFor } from '../server/store';
+
+async function run(argv: string[], env: Record<string, string | undefined>, out: (line: string) => void): Promise<number> {
+  const args = argv.filter((a) => !a.startsWith('--'));
+  const apply = argv.includes('--apply'), force = argv.includes('--force');
+  const [file, shopId] = args;
+  if (!file || !shopId) { out('usage: import-json-to-pg.js <file.json> <shop_id> [--apply] [--force]'); return 2; }
+  if (!env.DATABASE_URL) { out('DATABASE_URL is not set'); return 2; }
+  let state;
+  try { state = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { out('cannot read ' + file + ': ' + (e as Error).message); return 1; }
+  if (!state || !state.shop) { out(file + ' is not a khata (no "shop")'); return 1; }
+  const txns = Array.isArray(state.txns) ? state.txns.length : 0, customers = Array.isArray(state.customers) ? state.customers.length : 0;
+  const store = await makerFor(env.STORE)(env.DATABASE_URL, shopId);
+  try {
+    const existing = store.load();
+    out((store.kind === 'pg-tables' ? 'tables, ' : store.kind === 'pg-schema' ? 'schema ' + store.schema + ', ' : '') + 'shop_id ' + shopId + ': ' + customers + ' customers, ' + txns + ' txns' + (existing ? ' (a row already exists)' : ''));
+    if (existing && !force) { out(apply ? 'refusing to overwrite; use --force' : 'would refuse to overwrite; --force needed'); return apply ? 1 : 0; }
+    if (!apply) { out('dry run, nothing written. Use --apply.'); return 0; }
+    store.save(state);
+    await store.flush();
+    if (store.lastError) { out('write failed: ' + store.lastError); return 1; }
+    out('imported.');
+    return 0;
+  } finally { await store.close(); }
+}
+
+export { run };
+if (require.main === module) run(process.argv.slice(2), process.env, console.log).then((c) => process.exit(c), (e) => { console.error('failed: ' + (e as Error).message); process.exit(1); });

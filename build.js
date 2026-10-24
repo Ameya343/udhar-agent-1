@@ -1,11 +1,14 @@
-// Inlines core/agent-core.js into the web page. Outputs:
+// Inlines the compiled core (dist-server/core/agent-core.js, from core/agent-core.ts; run tsc first) into the web page. Outputs:
 //   dist/udhaar-agent.html             page body (published as the hosted demo link)
 //   dist/udhaar-agent-standalone.html  full HTML document (open in Chrome for live mic, or serve from any host)
 //   index.html                         copy of the standalone page for GitHub Pages
 const fs = require('fs');
 const path = require('path');
 const root = __dirname;
-const core = fs.readFileSync(path.join(root, 'core/agent-core.js'), 'utf8');
+// The compiled core is a CommonJS module (module.exports = UdhaarCore); in the page it runs inside a small wrapper
+// that gives it a module object and publishes the result as window.UdhaarCore, as the old UMD header did.
+const compiled = fs.readFileSync(path.join(root, 'dist-server/core/agent-core.js'), 'utf8');
+const core = '(function () {\nvar module = { exports: {} }, exports = module.exports;\n' + compiled + '\nself.UdhaarCore = module.exports;\n})();';
 const src = fs.readFileSync(path.join(root, 'web/index.src.html'), 'utf8');
 const qr = fs.readFileSync(path.join(root, 'vendor/qrcode-generator.js'), 'utf8'); // MIT, Kazuhiko Arase
 const page = src.replace('/*__CORE__*/', () => qr + '\n' + core);

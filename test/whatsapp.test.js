@@ -1,12 +1,12 @@
-// Real WhatsApp through Twilio: owner and customers on their own phones, voice notes, and the pay page.
+// Real WhatsApp through the linked device (faked): owner and customers on their own phones, voice notes, and the pay page.
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { createServer } = require('../server/server.js');
-const { twilioSignature } = require('../server/whatsapp.js');
-const C = require('../core/agent-core.js');
+const { createServer } = require('../dist-server/server/server.js');
+const { fakeWeb } = require('./fake-wa.js');
+const C = require('../dist-server/core/agent-core.js');
 
 const TODAY = '2026-10-08';
 const PUBLIC = 'https://gupta.example.org';
@@ -15,19 +15,12 @@ fs.existsSync(path.join(__dirname, '../dist/udhaar-agent-standalone.html')) || r
 
 function listen(server) { return new Promise((r) => server.listen(0, '127.0.0.1', () => r('http://127.0.0.1:' + server.address().port))); }
 
-// Stands in for Twilio's API (and a speech-to-text server): records every send.
+// Stands in for speech-to-text and ElevenLabs; f.sent records every WhatsApp send (from the fake linked device).
 function fakeFetch(opts) {
   opts = opts || {};
   const sent = [], calls = [];
   const f = async (url, init) => {
     url = String(url); calls.push({ url, init });
-    if (url.includes('/Messages.json')) {
-      const p = new URLSearchParams(init.body);
-      if (opts.sendFail) return new Response('{"code":21654,"message":"ContentSid Required"}', { status: 400 });
-      sent.push({ to: p.get('To'), body: p.get('Body'), media: p.get('MediaUrl') });
-      return new Response('{}', { status: 201 });
-    }
-    if (url.includes('/Media/')) return new Response(Buffer.from('OggS fake audio'), { status: 200 });
     if (url.includes('/v1/text-to-speech/')) return opts.ttsFail ? new Response('{}', { status: 401 }) : new Response(Buffer.from('ID3 fake mp3'), { status: 200 });
     if (url.endsWith('/audio/transcriptions')) return new Response(JSON.stringify({ text: opts.heard || '' }), { status: 200 });
     return new Response('{}', { status: 404 });
@@ -42,21 +35,16 @@ function waServer(extraEnv, fetchOpts) {
   const fetch = fakeFetch(fetchOpts);
   const env = Object.assign({
     SHOP: 'nayi', DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'udhaar-wa-')),
-    TWILIO_ACCOUNT_SID: 'ACtest', TWILIO_AUTH_TOKEN: 'secret-token', TWILIO_WHATSAPP_FROM: 'whatsapp:+14155238886',
-    OWNER_WHATSAPP: OWNER, PUBLIC_URL: PUBLIC, WA_JOIN_CODE: 'join shiny-tiger'
+    WA_PROVIDER: 'web', OWNER_WHATSAPP: OWNER, PUBLIC_URL: PUBLIC
   }, extraEnv || {});
-  const server = createServer({ env, today: () => TODAY, fetch });
+  const web = fakeWeb((to, c) => fetch.sent.push({ to: 'whatsapp:+' + to, body: c.text == null ? null : c.text, media: c.audio ? c.mimetype : null }));
+  const server = createServer({ env, today: () => TODAY, fetch, webTransport: web.factory });
+  server.fakeWeb = web;
   return { server, fetch };
 }
 
-// What Twilio would POST for one incoming WhatsApp message, correctly signed.
-async function inbound(base, server, fields, opts) {
-  const params = Object.assign({ MessageSid: 'SM' + Math.random().toString(16).slice(2), NumMedia: '0' }, fields);
-  const sig = opts && opts.badSig ? 'nope' : twilioSignature('secret-token', PUBLIC + '/whatsapp', params);
-  const r = await fetch(base + '/whatsapp', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-twilio-signature': sig }, body: new URLSearchParams(params).toString() });
-  await server.idle();
-  return r;
-}
+// One incoming WhatsApp message, as the linked session hands it over.
+function inbound(base, server, fields) { return server.fakeWeb.inbound(server, fields); }
 const from = (num) => 'whatsapp:' + num;
 
 test('the stage demo: a judge joins, gets an item-wise bill, says haan, pays cash, the owner confirms on WhatsApp', async () => {
@@ -101,19 +89,23 @@ test('the stage demo: a judge joins, gets an item-wise bill, says haan, pays cas
   } finally { server.close(); }
 });
 
-test('webhooks without a valid Twilio signature are refused, and nothing is written', async () => {
-  const { server, fetch: tw } = waServer();
+test('old Twilio / Meta settings do not stop the shop: a warning, web is used, the old webhooks are gone', async () => {
+  const logs = [], log = console.log;
+  console.log = (m) => logs.push(String(m));
+  let server;
+  try { server = waServer({ WA_PROVIDER: 'twilio', TWILIO_ACCOUNT_SID: 'AC1', META_WA_TOKEN: 'x', WA_REPLY_TWIML: '1' }).server; } finally { console.log = log; }
+  assert.ok(logs.some((l) => /WA_PROVIDER=twilio is no longer supported; using web/.test(l)));
   const base = await listen(server);
   try {
-    const r = await inbound(base, server, { From: from(OWNER), Body: 'Rohit 500 udhaar' }, { badSig: true });
-    assert.equal(r.status, 403);
-    assert.equal(server.getState().txns.length, 0);
-    assert.equal(tw.sent.length, 0);
+    assert.equal(server.whatsapp.provider, 'web');
+    assert.equal((await fetch(base + '/whatsapp', { method: 'POST', body: 'a=b' })).status, 404);
+    assert.equal((await fetch(base + '/meta/webhook?hub.mode=subscribe')).status, 404);
+    const h = await (await fetch(base + '/healthz')).json();
+    assert.equal(h.whatsapp.provider, 'web');
+    assert.equal(h.whatsapp.enabled, true);
+    await inbound(base, server, { From: from(JUDGE), ProfileName: 'Rohit', Body: 'hi' });
+    assert.match(server.getState().customers.find((c) => c.phone === '9812345678').name, /Rohit/);
   } finally { server.close(); }
-  // no Twilio token configured: the endpoint does not exist
-  const plain = createServer({ env: { SHOP: 'nayi', DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'udhaar-wa-')) }, today: () => TODAY });
-  const b2 = await listen(plain);
-  try { assert.equal((await fetch(b2 + '/whatsapp', { method: 'POST', body: 'a=b' })).status, 404); } finally { plain.close(); }
 });
 
 test('an owner voice note is transcribed, echoed back, and written to the khata', async () => {
@@ -122,7 +114,8 @@ test('an owner voice note is transcribed, echoed back, and written to the khata'
   try {
     await inbound(base, server, { From: from(JUDGE), ProfileName: 'Rohit', Body: 'hi' });
     tw.clear();
-    await inbound(base, server, { From: from(OWNER), Body: '', NumMedia: '1', MediaContentType0: 'audio/ogg', MediaUrl0: 'https://api.twilio.com/2010-04-01/Accounts/ACtest/Messages/MM1/Media/ME1' });
+    await inbound(base, server, { From: from(OWNER), Body: '', NumMedia: '1', MediaContentType0: 'audio/ogg' });
+    assert.equal(server.fakeWeb.downloads, 1);
     const toOwner = tw.to(OWNER);
     assert.equal(toOwner[0], '🎙️ Suna: "Rohit ji ne 2 kilo cheeni li 90 rupaye"');
     const stt = tw.calls.find((c) => c.url.endsWith('/audio/transcriptions'));
@@ -135,18 +128,18 @@ test('an owner voice note is transcribed, echoed back, and written to the khata'
   } finally { server.close(); }
 });
 
-test('voice notes without speech-to-text, and media from anywhere but Twilio, are refused politely', async () => {
+test('voice notes without speech-to-text, or that cannot be understood, are refused politely', async () => {
   const { server, fetch: tw } = waServer({ STT_URL: 'https://stt.example.org/v1' });
   const base = await listen(server);
   try {
-    await inbound(base, server, { From: from(OWNER), NumMedia: '1', MediaContentType0: 'audio/ogg', MediaUrl0: 'https://evil.example.com/x.ogg' });
+    await inbound(base, server, { From: from(OWNER), NumMedia: '1', MediaContentType0: 'audio/ogg' });
     assert.match(tw.to(OWNER)[0], /Awaaz saaf samajh nahi aayi/);
-    assert.ok(!tw.calls.some((c) => c.url.startsWith('https://evil')));
+    assert.equal(server.getState().txns.length, 0);
   } finally { server.close(); }
   const s2 = waServer();
   const b2 = await listen(s2.server);
   try {
-    await inbound(b2, s2.server, { From: from(OWNER), NumMedia: '1', MediaContentType0: 'audio/ogg', MediaUrl0: 'https://api.twilio.com/x/Media/ME1' });
+    await inbound(b2, s2.server, { From: from(OWNER), NumMedia: '1', MediaContentType0: 'audio/ogg' });
     assert.match(s2.fetch.to(OWNER)[0], /Voice note abhi chalu nahi hai/);
   } finally { s2.server.close(); }
 });
@@ -208,10 +201,10 @@ test('the pay page needs the secret link, shows the live baaki, and offers cash 
     assert.match(html, /₹500/);
     assert.match(html, /upi:\/\/pay\?pa=/);
     assert.match(html, /cash de diya/);
-    // the stage QR opens WhatsApp with the Sandbox join words typed in
+    // the stage QR opens WhatsApp on the linked shop number with a greeting typed in
     const j = await (await fetch(base + '/join')).text();
     assert.match(j, /<svg/);
-    assert.match(j, /wa\.me\/14155238886\?text=join%20shiny-tiger/);
+    assert.match(j, /wa\.me\/919800000009\?text=Namaste/);
   } finally { server.close(); }
 });
 
@@ -232,17 +225,14 @@ test('with ElevenLabs on, the customer also gets the bill as a Hindi voice note 
     assert.match(toJudge[0].body, /Cheeni 2 kilo = ₹90/);
     assert.ok(!toJudge[0].media);
     const voice = toJudge[1];
-    assert.ok(voice && !voice.body && voice.media.startsWith(PUBLIC + '/media/'), 'the voice note follows the text');
+    assert.ok(voice && !voice.body && voice.media === 'audio/ogg; codecs=opus', 'the voice note follows the text, as an Ogg Opus voice note');
     const call = tw.calls.find((c) => c.url.includes('/v1/text-to-speech/'));
     assert.equal(call.init.headers['xi-api-key'], 'el-key');
     const said = JSON.parse(call.init.body);
     assert.equal(said.model_id, 'eleven_multilingual_v2');
     assert.match(said.text, /^नमस्ते Rohit। .* 270 रुपये उधार लिखे गए: cheeni 2 kilo, 90 रुपये; tel 1 litre, 180 रुपये/);
     assert.ok(!tw.to(OWNER).some((b) => b == null), 'the owner gets no voice notes');
-    // Twilio fetches the audio from us; an unknown id is 404
-    const r = await fetch(base + voice.media.slice(PUBLIC.length));
-    assert.equal(r.status, 200); assert.equal(r.headers.get('content-type'), 'audio/mpeg');
-    assert.equal((await fetch(base + '/media/' + '0'.repeat(24) + '.mp3')).status, 404);
+    assert.match(call.url, /output_format=opus_48000_64/);
   } finally { server.close(); }
   const s2 = waServer({ ELEVENLABS_API_KEY: 'bad', WA_VOICE_REPLIES: '1' }, { ttsFail: true });
   const b2 = await listen(s2.server);
@@ -255,84 +245,22 @@ test('with ElevenLabs on, the customer also gets the bill as a Hindi voice note 
   } finally { s2.server.close(); }
 });
 
-test('WA_REPLY_TWIML=1: the sender gets the answer inside the webhook reply, others still through the API', async () => {
-  const { server, fetch: tw } = waServer({ WA_REPLY_TWIML: '1' });
-  const base = await listen(server);
-  try {
-    const r = await inbound(base, server, { From: from(JUDGE), ProfileName: 'Rohit', Body: 'hi' });
-    assert.equal(r.status, 200);
-    assert.match(r.headers.get('content-type'), /text\/xml/);
-    const xml = await r.text();
-    assert.match(xml, /^<\?xml[^>]*><Response><Message>Namaste Rohit 🙏 Aap .* se jud gaye/);
-    assert.deepEqual(tw.to(JUDGE), [], 'the sender is not also messaged through the API');
-    assert.match(tw.to(OWNER)[0], /Naya number jud gaya: Rohit /);
-    const o = await inbound(base, server, { From: from(OWNER), Body: 'Rohit ne 340 ka saaman liya, kal denge' });
-    assert.match(await o.text(), /<Message>[^<]*340/);
-    assert.equal(server.getState().customers.find((c) => c.name === 'Rohit').phone, JUDGE.slice(-10));
-  } finally { server.close(); }
-});
-
-test('WA_REPLY_TWIML=1: the owner is told when a bill did not reach the customer', async () => {
-  const { server, fetch: tw } = waServer({ WA_REPLY_TWIML: '1' });
-  const base = await listen(server);
-  try {
-    // a number the owner typed in, but that has never written to the shop: nothing can be sent to it
-    await inbound(base, server, { From: from(OWNER), Body: 'Verma ji ne 120 ka saaman liya' });
-    await inbound(base, server, { From: from(OWNER), Body: 'Verma ji ka number 9876543210' });
-    const o = await inbound(base, server, { From: from(OWNER), Body: 'Verma ji ne 2 kilo cheeni 90 liya' });
-    assert.match(await o.text(), /WhatsApp nahi pahuncha: Verma ji\./);
-    // a customer who joined, but Twilio refuses the send
-    await inbound(base, server, { From: from(JUDGE), ProfileName: 'Rohit', Body: 'hi' });
-    tw.clear();
-  } finally { server.close(); }
-  const f = waServer({ WA_REPLY_TWIML: '1' }, { sendFail: true });
-  const base2 = await listen(f.server);
-  try {
-    await inbound(base2, f.server, { From: from(JUDGE), ProfileName: 'Rohit', Body: 'hi' });
-    const o = await inbound(base2, f.server, { From: from(OWNER), Body: 'Rohit ne 2 kilo cheeni 90 liya' });
-    const xml = await o.text();
-    assert.match(xml, /Rohit ko WhatsApp par bhej rahe hain/);
-    assert.match(xml, /WhatsApp nahi pahuncha: Rohit\./);
-  } finally { f.server.close(); }
-});
-
 test('WhatsApp order: the customer orders, says haan for udhaar, the owner says ok, and it is in the khata', async () => {
-  const { server } = waServer({ WA_REPLY_TWIML: '1' });
+  const { server, fetch: tw } = waServer();
   const base = await listen(server);
   try {
     await inbound(base, server, { From: from(JUDGE), ProfileName: 'Rohit', Body: 'hi' });
     await inbound(base, server, { From: from(OWNER), Body: 'Rohit ne cheeni 2 kilo 90 liya' }); // opens the khata, teaches the rate
-    const o = await inbound(base, server, { From: from(JUDGE), Body: 'cheeni 1 kilo bhej do' });
-    assert.match(await o.text(), /Cheeni 1 kilo = ₹45[^]*Udhaar mein likhein/);
-    const h = await inbound(base, server, { From: from(JUDGE), Body: 'haan' });
-    assert.match(await h.text(), /udhaar par\. Order dukaandaar ke paas hai/);
+    tw.clear();
+    await inbound(base, server, { From: from(JUDGE), Body: 'cheeni 1 kilo bhej do' });
+    assert.match(tw.to(JUDGE).join('\n'), /Cheeni 1 kilo = ₹45[^]*Udhaar mein likhein/);
+    tw.clear();
+    await inbound(base, server, { From: from(JUDGE), Body: 'haan' });
+    assert.match(tw.to(JUDGE).join('\n'), /udhaar par\. Order dukaandaar ke paas hai/);
     const before = server.getState().txns.length;
-    const ok = await inbound(base, server, { From: from(OWNER), Body: 'ok' });
-    assert.match(await ok.text(), /Order pakka: Rohit, ₹45 khate mein likh diya/);
+    tw.clear();
+    await inbound(base, server, { From: from(OWNER), Body: 'ok' });
+    assert.match(tw.to(OWNER).join('\n'), /Order pakka: Rohit, ₹45 khate mein likh diya/);
     assert.equal(server.getState().txns.length, before + 1);
   } finally { server.close(); }
-});
-
-test('WA_REPLY_TWIML=1 + ElevenLabs: the customer\'s answer carries the Hindi voice note in the same reply, text first', async () => {
-  const { server, fetch: tw } = waServer({ WA_REPLY_TWIML: '1', ELEVENLABS_API_KEY: 'el-key', WA_VOICE_REPLIES: '1' });
-  const base = await listen(server);
-  try {
-    await inbound(base, server, { From: from(JUDGE), ProfileName: 'Rohit', Body: 'hi' });
-    await inbound(base, server, { From: from(OWNER), Body: 'Rohit ne 340 ka saaman liya, kal denge' });
-    tw.clear();
-    const r = await inbound(base, server, { From: from(JUDGE), Body: 'kitna baaki hai' });
-    const xml = await r.text();
-    assert.match(xml, /<Message>📄[^<]*₹340 baaki[^<]*<\/Message><Message><Media>https:\/\/[^<]*\/media\/[0-9a-f]+\.mp3<\/Media><\/Message>/);
-    assert.deepEqual(tw.to(JUDGE), [], 'nothing for the sender goes through the API');
-    const tts = tw.calls.filter((c) => c.url.includes('/v1/text-to-speech/'));
-    assert.match(JSON.parse(tts[tts.length - 1].init.body).text, /340 रुपये बाकी/);
-  } finally { server.close(); }
-  // no key: text only, as before
-  const plain = waServer({ WA_REPLY_TWIML: '1' });
-  const b2 = await listen(plain.server);
-  try {
-    await inbound(b2, plain.server, { From: from(JUDGE), ProfileName: 'Rohit', Body: 'hi' });
-    await inbound(b2, plain.server, { From: from(OWNER), Body: 'Rohit ne 340 ka saaman liya, kal denge' });
-    assert.doesNotMatch(await (await inbound(b2, plain.server, { From: from(JUDGE), Body: 'kitna baaki hai' })).text(), /<Media>/);
-  } finally { plain.server.close(); }
 });

@@ -2,7 +2,7 @@
 // letters, spoken amounts to digits), and the AI prompt knows the shop, the roles and every action.
 const test = require('node:test');
 const assert = require('node:assert');
-const C = require('../core/agent-core.js');
+const C = require('../dist-server/core/agent-core.js');
 
 const TODAY = '2026-10-08';
 

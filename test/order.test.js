@@ -9,8 +9,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
-const C = require('../core/agent-core.js');
-const { createServer } = require('../server/server.js');
+const C = require('../dist-server/core/agent-core.js');
+const { createServer } = require('../dist-server/server/server.js');
 
 const TODAY = '2026-10-18';
 const T0 = Date.UTC(2026, 9, 18, 18, 55, 0);

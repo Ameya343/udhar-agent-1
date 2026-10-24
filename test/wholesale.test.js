@@ -6,9 +6,9 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const C = require('../core/agent-core.js');
-const { createServer } = require('../server/server.js');
-const { twilioSignature } = require('../server/whatsapp.js');
+const C = require('../dist-server/core/agent-core.js');
+const { createServer } = require('../dist-server/server/server.js');
+const { fakeWeb } = require('./fake-wa.js');
 
 const TODAY = '2026-10-08';
 fs.existsSync(path.join(__dirname, '../dist/udhaar-agent-standalone.html')) || require('../build.js');
@@ -210,32 +210,29 @@ test('the supplier khata and customer flows are unchanged by all this', () => {
   assert.equal((st.wsOrders || []).length, 0);
 });
 
-// ---------------------------------------------------------------- over WhatsApp (Twilio fake), text and voice
+// ---------------------------------------------------------------- over WhatsApp (linked device fake), text and voice
 const PUBLIC = 'https://gupta.example.org', OWNER = '+919800000001', AGRAWAL = '+919822700001', STRANGER = '+919822799999';
 function fakeFetch(heard) {
   const sent = [];
   const f = async (url, init) => {
     url = String(url);
-    if (url.includes('/Messages.json')) { const p = new URLSearchParams(init.body); sent.push({ to: p.get('To'), body: p.get('Body') }); return new Response('{}', { status: 201 }); }
-    if (url.includes('/Media/')) return new Response(Buffer.from('OggS fake audio'), { status: 200 });
     if (url.endsWith('/audio/transcriptions')) return new Response(JSON.stringify({ text: heard || '' }), { status: 200 });
     return new Response('{}', { status: 404 });
   };
+  f.sent = sent;
   f.to = (num) => sent.filter((s) => s.to === 'whatsapp:' + num).map((s) => s.body);
   f.clear = () => { sent.length = 0; };
   return f;
 }
 function listen(server) { return new Promise((r) => server.listen(0, '127.0.0.1', () => r('http://127.0.0.1:' + server.address().port))); }
-async function inbound(base, server, fields) {
-  const params = Object.assign({ MessageSid: 'SM' + Math.random().toString(16).slice(2), NumMedia: '0' }, fields);
-  await fetch(base + '/whatsapp', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-twilio-signature': twilioSignature('secret-token', PUBLIC + '/whatsapp', params) }, body: new URLSearchParams(params).toString() });
-  await server.idle();
-}
+function inbound(base, server, fields) { return server.fakeWeb.inbound(server, fields); }
 function waServer(heard) {
   const fetch = fakeFetch(heard);
-  const env = { SHOP: 'gupta', DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'udhaar-ws-')), TWILIO_ACCOUNT_SID: 'ACtest', TWILIO_AUTH_TOKEN: 'secret-token',
-    TWILIO_WHATSAPP_FROM: 'whatsapp:+14155238886', OWNER_WHATSAPP: OWNER, PUBLIC_URL: PUBLIC, STT_URL: 'https://stt.example.org/v1' };
-  return { server: createServer({ env, today: () => TODAY, fetch }), fetch };
+  const env = { SHOP: 'gupta', DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'udhaar-ws-')), WA_PROVIDER: 'web', OWNER_WHATSAPP: OWNER, PUBLIC_URL: PUBLIC, STT_URL: 'https://stt.example.org/v1' };
+  const web = fakeWeb((to, c) => fetch.sent.push({ to: 'whatsapp:+' + to, body: c.text }));
+  const server = createServer({ env, today: () => TODAY, fetch, webTransport: web.factory });
+  server.fakeWeb = web;
+  return { server, fetch };
 }
 
 test('WhatsApp: number set, wholesaler says hi (not a guest), voice order, ok sends it, reply with bill reaches the owner', async () => {
@@ -259,7 +256,7 @@ test('WhatsApp: number set, wholesaler says hi (not a guest), voice order, ok se
     assert.deepEqual(tw.to(AGRAWAL), ['Namaste 🙏 Gupta Kirana Store ka order isi number par aayega. Bill aur kab tak bhejenge, yahin bata dijiye.']); // a short business line, not the customer menu
     tw.clear();
     // a voice note from the owner
-    await inbound(base, server, { From: 'whatsapp:' + OWNER, Body: '', NumMedia: '1', MediaContentType0: 'audio/ogg', MediaUrl0: 'https://api.twilio.com/2010-04-01/Accounts/ACtest/Messages/MM1/Media/ME1' });
+    await inbound(base, server, { From: 'whatsapp:' + OWNER, Body: '', NumMedia: '1', MediaContentType0: 'audio/ogg' });
     assert.match(tw.to(OWNER).join('\n'), /🛒 Agrawal Traders ko bhejun\?\n- Cheeni 10 kg\n- Aata 5 kg/);
     assert.equal(tw.to(AGRAWAL).length, 0);
     await inbound(base, server, { From: 'whatsapp:' + OWNER, Body: 'ok' });
