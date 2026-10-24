@@ -18,13 +18,18 @@ function createBrain(opts: BrainOpts) {
   const llm = createLlm({ env, fetch: opts.fetch });
   const cache = new Map<string, string>(); // lang + text -> translation; menus and receipts repeat a lot
 
-  /** The owner's message. Answers to the agent's own questions (a number, a rate, haan / nahi) and UPI SMS keep their exact parsers. */
+  /**
+   * The owner's message. The model reads every one and its intent decides what the khata does (agent-core's
+   * handleOwnerText runs a rule parser only when the model's intent allows it). Two kinds keep their exact parsers:
+   * an answer to the agent's own open question (a number, a rate, haan / nahi), so a confirmation is never
+   * reinterpreted, and a bank's UPI SMS. With no model, or when it fails or times out, the rules decide.
+   */
   async function understandOwner(text: string, o?: HeardOpts): Promise<Understood<OwnerIntent>> {
     o = o || {};
     const state = getState();
     const rules = C.parseOwnerMessage(text, state.today);
     const answering = state.pending || C.orderRateAnswer(state, text) || (C.shortAnswer(text) && ((state.ownerAsks || []).length || C.pendingClaims(state).length));
-    if (!llm.enabled || rules.intent === 'choice' || answering || C.looksLikeUpiSms(text) || C.looksLikeCounter(text)) return rules;
+    if (!llm.enabled || !String(text).trim() || answering || C.looksLikeUpiSms(text)) return rules;
     try {
       const r = await llm.chatJson(U.ownerMessages(state, o.heard || text), { maxTokens: 500, validate: (j) => U.normalize(j, 'owner') });
       const oi: Understood<OwnerIntent> = U.reconcileOwner(state, U.toOwnerIntent(r.value, text), rules, text);

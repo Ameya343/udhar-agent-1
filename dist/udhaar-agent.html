@@ -6526,9 +6526,16 @@ function factory() {
         const canonStock = canonIf(CANON_STOCK) || (saysStockName ? canon0 : null);
         const canon = canonIf(CANON_LIST);
         const llmRoute0 = opts.intent && opts.intent.parser === 'llm' ? opts.intent.llmIntent : null;
+        // The AI is the brain: when it read the message (and is not unsure), each rule parser below runs only if the AI's
+        // intent allows it, so "ok" the AI calls chitchat never becomes a list edit, a stock order or a fix. With no AI
+        // reading (no model, a failure, a timeout, or the safety checks in understand.ts overruled it) every parser runs.
+        const aiRead = llmRoute0 && !(opts.intent.confidence != null && opts.intent.confidence < 0.5) ? llmRoute0 : null;
+        const aiAllows = (...ok) => !aiRead || ok.indexOf(aiRead) >= 0;
+        const AI_NOT_KHATA = ['balance', 'summary', 'remind', 'remind_all', 'help', 'chitchat', 'set_phone', 'add_customer', 'week', 'supplier', 'wholesale'];
+        const aiKhata = !aiRead || AI_NOT_KHATA.indexOf(aiRead) < 0;
         if (!state.pending) {
             // "Krish ki list mein 2 Maggi jod do" / "... se doodh hata do" / "... aata 90 ka tha" / "Krish ki list badlo: ..."
-            const ed = listEditIntent(state, text) || (canon && listEditIntent(state, canon));
+            const ed = aiAllows('list_edit', 'list', 'udhaar', 'jama', 'undo', 'unknown') && (listEditIntent(state, text) || (canon && listEditIntent(state, canon)));
             if (ed) {
                 const out = listEditStep(state, ed, opts);
                 return { intent: { intent: 'list_edit', op: ed.op, name: ed.name }, messages: dedupe(out) };
@@ -6539,27 +6546,28 @@ function factory() {
                 return { intent: { intent: 'list_edit' }, messages: out };
             }
             // stock from wholesalers: order, numbers, who supplies what, "maal aa gaya"
-            const ws = parseWholesale(state, text) || (canonStock && parseWholesale(state, canonStock));
+            const stockOk = aiAllows('wholesale', 'supplier', 'unknown');
+            const ws = stockOk && (parseWholesale(state, text) || (canonStock && parseWholesale(state, canonStock)));
             if (ws) {
                 const out = applyWholesale(state, ws, []);
                 pruneAsks(state);
                 askAlong(state, out);
                 return { intent: { intent: 'wholesale', kind: ws.kind }, messages: dedupe(out) };
             }
-            const sp = parseSupplier(state, text) || (canonStock && parseSupplier(state, canonStock));
+            const sp = stockOk && (parseSupplier(state, text) || (canonStock && parseSupplier(state, canonStock)));
             if (sp) {
                 const out = [];
                 applySupplier(state, sp, (t) => emit(state, out, 'owner', t, { kind: 'supplier' }));
                 return { intent: { intent: 'supplier' }, messages: out };
             }
             const weekAsk = (t) => WEEK_ASK.test(both(t)) && !/\d/.test(t);
-            if (weekAsk(text) || (canon0 && weekAsk(canon0) && opts.intent.intent !== 'summary')) {
+            if (aiAllows('week', 'summary', 'unknown') && (weekAsk(text) || (canon0 && weekAsk(canon0) && opts.intent.intent !== 'summary'))) {
                 const out = [];
                 emit(state, out, 'owner', weekText(state), { kind: 'week' });
                 return { intent: { intent: 'week' }, messages: out };
             }
         }
-        const ri = removeIntent(state, text) || (canonIf(CANON_REMOVE) && removeIntent(state, canonIf(CANON_REMOVE)));
+        const ri = aiAllows('remove_customer', 'restore_customer', 'undo', 'unknown') && (removeIntent(state, text) || (canonIf(CANON_REMOVE) && removeIntent(state, canonIf(CANON_REMOVE))));
         if (ri) {
             ri.source = opts.source || 'text';
             const out = applyIntent(state, ri);
@@ -6579,32 +6587,32 @@ function factory() {
                 return { intent: { intent: 'vouch-off' }, messages: say1('🤝 Kisi ki pehchan ya guarantee par naya khata (vouching) abhi band hai, isliye kuch nahi likha. Naye grahak ka udhaar likhna ho toh seedha unke naam se boliye, jaise "Raju ne 200 ka saman liya".', { kind: 'vouch-off' }) };
             }
             // "nahi 340 hi tha" / "sorry 430 tha": the owner's own last entry, shown and checked
-            const nf = namelessFix(state, text);
+            const nf = aiKhata && namelessFix(state, text);
             if (nf) {
                 const out = [];
                 applyNamelessFix(state, nf, (t, m) => emit(state, out, 'owner', t, m));
                 return { intent: nf, messages: out };
             }
             // "cheeni hata do": that item off the last entry, never the whole entry
-            const ir = itemRemove(state, text);
+            const ir = aiKhata && itemRemove(state, text);
             if (ir)
                 return { intent: ir, messages: dedupe(applyItemRemove(state, ir, [])) };
             // "Kavita aunty ki jagah Kulkarni kaku ka tha": the first person's latest entry belongs to the second
-            const sw = swapIntent(state, text);
+            const sw = aiKhata && swapIntent(state, text);
             if (sw) {
                 const out = [];
                 applySwap(state, sw, (t, m) => emit(state, out, 'owner', t, m));
                 return { intent: sw, messages: out };
             }
             // "Sharma ji ka 340 nahi 430 tha" / "Sharma ji ki entry cancel": only that person's own entry, or a question
-            const fx = fixIntent(state, text);
+            const fx = aiKhata && fixIntent(state, text);
             if (fx) {
                 const out = [];
                 applyFix(state, fx, (t, m) => emit(state, out, 'owner', t, m));
                 return { intent: fx, messages: out };
             }
             // "Verma ka 250 aur Pappu ka 120 likh do": one entry per person
-            const mi = multiIntent(state, text) || multiFromLlm(state, opts.intent, text);
+            const mi = aiAllows('udhaar', 'jama', 'list', 'unknown') && (multiIntent(state, text) || multiFromLlm(state, opts.intent, text));
             if (mi) {
                 const out = applyMulti(state, mi, opts);
                 pruneAsks(state);
@@ -6620,10 +6628,16 @@ function factory() {
         // "Krish ki list: 2 kilo aata 80, Parle-G 10, doodh 30": item by item on the khata, then to the customer
         // the AI reads every message first: a question about a person ("Krish ki list bhejo") never writes a list
         const llmRoute = opts.intent && opts.intent.parser === 'llm' && opts.intent.confidence >= 0.7 ? opts.intent.llmIntent : null;
-        const noList = ['balance', 'summary', 'remind', 'remind_all', 'undo', 'help', 'remove_customer', 'restore_customer', 'set_phone', 'add_customer'].indexOf(llmRoute) >= 0;
+        const noList = ['balance', 'summary', 'remind', 'remind_all', 'undo', 'help', 'remove_customer', 'restore_customer', 'set_phone', 'add_customer'].indexOf(llmRoute) >= 0 || !aiAllows('list', 'udhaar', 'unknown');
         let li = state.pending || noList ? null : listIntent(state, text);
         if (!li && canon0 && !state.pending && !noList) {
             li = listIntent(state, canon0, text);
+            // the AI's rewrite only writes a list the owner's own words carry: every item must be said (KAN-107).
+            // "Pappu aaya tha" with canon "Pappu ki list: aata 80, cheeni 40" writes nothing
+            const own = tokenize(text).norm.filter((w) => w.length >= 3);
+            const saidItem = (name) => tokenize(name).norm.some((w) => w.length >= 3 && own.some((x) => x.startsWith(w) || w.startsWith(x)));
+            if (li && !li.lineParse.lines.every((l) => saidItem(l.name)))
+                li = null;
             if (li)
                 li.parser = 'llm';
         }
@@ -6650,7 +6664,7 @@ function factory() {
                 intent.items = intent.items.split(', ').filter((x) => !tokenize(x).norm.some((w) => isCustomerWord(state, w))).join(', ');
             }
         }
-        if (!state.pending && looksLikeCounter(text))
+        if (!state.pending && aiAllows('udhaar', 'list', 'unknown') && looksLikeCounter(text))
             intent = counterIntent(state, text);
         intent.source = opts.source || 'text';
         intent.raw = text;
