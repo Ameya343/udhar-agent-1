@@ -191,6 +191,7 @@ test('the pay page needs the secret link, shows the live baaki, and offers cash 
     await inbound(base, server, { From: from(JUDGE), ProfileName: 'Rohit', Body: 'hi' });
     await inbound(base, server, { From: from(OWNER), Body: 'Rohit 500 udhaar' });
     const st = server.getState(), c = st.customers.find((x) => x.phone === '9812345678');
+    st.shop.upiId = 'nayidukaan@okaxis'; // a new shop has none until the owner adds it in Shop profile
     assert.equal((await fetch(base + '/pay/' + c.id + '.0000000000000000')).status, 404);
     assert.equal((await fetch(base + '/pay/' + c.id)).status, 404);
     // the link's secret is made on first use and kept with the khata

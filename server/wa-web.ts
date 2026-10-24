@@ -19,7 +19,7 @@ import fs = require('fs');
 type Baileys = any;
 type RawMessage = any;
 export interface WebMessage { id: string; from: string; name: string; text: string; audio: { web: RawMessage; type: string } | null }
-export interface SendContent { text?: string; audio?: Buffer; mimetype?: string }
+export interface SendContent { text?: string; audio?: Buffer; mimetype?: string; image?: Buffer; caption?: string }
 export interface WebTransportOpts {
   authDir: string;
   loadLib: () => Promise<Baileys>;
@@ -200,6 +200,7 @@ function createWebTransport(o: WebTransportOpts) {
       await sleep(content.audio ? 1500 : Math.min(2500, 600 + String(content.text || '').length * 15));
       await s.sendPresenceUpdate('paused', jid).catch(() => {});
       if (content.audio) await s.sendMessage(jid, { audio: content.audio, mimetype: content.mimetype || 'audio/ogg; codecs=opus', ptt: true });
+      else if (content.image) await s.sendMessage(jid, { image: content.image, mimetype: content.mimetype || 'image/png', caption: content.caption || '' });
       else await s.sendMessage(jid, { text: String(content.text) });
       st.sent++;
       if (!reply) business.push(now());
@@ -209,7 +210,7 @@ function createWebTransport(o: WebTransportOpts) {
       return false;
     } finally { lastSendAt = now(); }
   }
-  /** Queues one message; resolves true when WhatsApp took it. content: { text } or { audio: Buffer, mimetype }. */
+  /** Queues one message; resolves true when WhatsApp took it. content: { text }, { audio: Buffer, mimetype } or { image: Buffer, caption }. */
   function send(to: string, content: SendContent): Promise<boolean> {
     to = digits(to);
     if (!to) return Promise.resolve(false);

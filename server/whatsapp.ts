@@ -19,6 +19,7 @@
 //   WA_VOICE_REPLIES=1                      optional: customers ALSO get each bill and reminder as a Hindi voice note
 //   ELEVENLABS_VOICE_ID, ELEVENLABS_MODEL   (ElevenLabs text to speech, needs ELEVENLABS_API_KEY). Unset = text only.
 import crypto = require('crypto');
+import zlib = require('zlib');
 import C = require('../core/agent-core');
 import type { IncomingMessage } from 'http';
 import type { State, Message, Customer } from '../core/types';
@@ -44,6 +45,35 @@ function sameString(a: unknown, b: unknown): boolean {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
+// A QR as a PNG (black on white, 8 px a module, 4 modules of quiet zone), for WhatsApp, which takes images, not SVG.
+const CRC = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+function pngChunk(type: string, data: Buffer) {
+  const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+  let c = 0xffffffff;
+  for (const b of body) c = CRC[(c ^ b) & 0xff] ^ (c >>> 8);
+  const len = Buffer.alloc(4), crc = Buffer.alloc(4);
+  len.writeUInt32BE(data.length); crc.writeUInt32BE((c ^ 0xffffffff) >>> 0);
+  return Buffer.concat([len, body, crc]);
+}
+function qrPng(text: string, scale = 8, quiet = 4): Buffer {
+  // vendored untyped UMD script; compiled to dist-server/server/, two levels below the repo root
+  const qr = (require('../../vendor/qrcode-generator.js') as any)(0, 'M');
+  qr.addData(text); qr.make();
+  const n = qr.getModuleCount(), size = (n + 2 * quiet) * scale;
+  const rows = Buffer.alloc((size + 1) * size, 255); // 8-bit greyscale, filter byte 0 on each row
+  for (let y = 0; y < size; y++) {
+    rows[y * (size + 1)] = 0;
+    const r = Math.floor(y / scale) - quiet;
+    for (let x = 0; x < size; x++) {
+      const c = Math.floor(x / scale) - quiet;
+      if (r >= 0 && r < n && c >= 0 && c < n && qr.isDark(r, c)) rows[y * (size + 1) + 1 + x] = 0;
+    }
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(size, 0); ihdr.writeUInt32BE(size, 4); ihdr[8] = 8; ihdr[9] = 0; // 8-bit greyscale
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), pngChunk('IHDR', ihdr), pngChunk('IDAT', zlib.deflateSync(rows)), pngChunk('IEND', Buffer.alloc(0))]);
+}
+
 
 function createWhatsapp(o: WhatsappOpts) {
   const env = o.env, fetchImpl = o.fetch;
@@ -58,7 +88,7 @@ function createWhatsapp(o: WhatsappOpts) {
   const elevenBase = (env.ELEVENLABS_API_BASE || 'https://api.elevenlabs.io').replace(/\/+$/, '');
   // the voice-note counters are added below only when they apply
   const stats: { provider: string; enabled: boolean; sending: boolean; stt: boolean; sttProvider: string | null; received: number; sent: number; failed: number; lastError: string | null | undefined;
-    voiceNotes?: boolean; voiceSent?: number; voiceFailed?: number; ignored?: number } = {
+    voiceNotes?: boolean; voiceSent?: number; voiceFailed?: number; ignored?: number; qrSent?: number } = {
     provider: 'web', enabled: !!(owner && web), sending: !!web,
     stt: !!sttProvider, sttProvider, received: 0, sent: 0, failed: 0, lastError: null
   };
@@ -136,8 +166,26 @@ function createWhatsapp(o: WhatsappOpts) {
     let t = m.text;
     if ((m.kind === 'entry-check' && !m.list) || m.kind === 'statement') t += '\n\nJawab dijiye: *Haan* ya *Galat*'; // a list already ends with "haan / galat likhein"
     if (m.kind === 'consent-ask') t += '\n\nJawab dijiye: *Haan* ya *Nahi*';
-    if (m.kind === 'reminder' && m.amount! > 0) { const u = payUrl(state, m.to); if (u) t += '\nUPI se dena ho toh: ' + u; }
+    // the hisaab and reminders say how to get the QR on WhatsApp itself: the whole baaki or any part
+    if (((m.kind === 'statement' && m.balance! > 0) || (m.kind === 'reminder' && m.amount! > 0)) && state.shop.upiId)
+      t += '\n\n💳 UPI QR chahiye? Poora baaki: *QR bhejo* likhiye. Thoda: jaise *200 ka QR bhejo*.';
+    // "QR bhejo": the QR image follows this text; the link opens a page with a tap-to-pay button for the same amount
+    if (m.kind === 'pay-offer' && m.amount! > 0 && state.shop.upiId) {
+      const u = payUrl(state, m.to);
+      if (u) t += '\nPhone par hi pay karna ho, yeh link dabaiye: ' + u + '?amt=' + qrAmount(m);
+    }
     return t;
+  }
+  /** The amount the QR for a pay-offer carries: the part they asked for, or the whole baaki (never more without the page's yes). */
+  function qrAmount(m: Message) { return m.payAmount! > 0 && m.payAmount! <= m.amount! ? m.payAmount! : m.amount!; }
+  /** After a pay-offer's text: the UPI QR as an image, for exactly that amount, to scan from another phone or from the gallery. */
+  function queueQr(state: State, to: string, m: Message) {
+    const c = state.customers.find((x) => x.id === m.to);
+    if (!stats.sending || !c || !state.shop.upiId || !(m.amount! > 0)) return;
+    const amt = qrAmount(m);
+    const caption = '₹' + amt + ' · ' + state.shop.name + ' · ' + state.shop.upiId + '\nKisi bhi UPI app se scan kijiye. Isi phone par: UPI app → Scan → Gallery se yeh photo chuniye.';
+    outQueue = outQueue.then(() => web!.send(to, { image: qrPng(C.upiLink(state, c, amt)), mimetype: 'image/png', caption }))
+      .then((ok) => { if (ok) stats.qrSent = (stats.qrSent || 0) + 1; else stats.failed++; });
   }
   function recipient(state: State, to: string, kind?: string): string | null {
     if (to === 'owner') return ownerTo || null;
@@ -170,7 +218,7 @@ function createWhatsapp(o: WhatsappOpts) {
           if (o && o.status === 'sent') { o.status = 'unsent'; o.why = 'send-failed'; }
           return sendNow(ownerTo, '⚠️ ' + name + ' ko order WhatsApp par nahi gaya (WhatsApp ne abhi roka). Thodi der baad dobara boliye, ya phone par bata dijiye.');
         });
-      } else if (to) { queueSend(to, waText(state, m)); if (m.to !== 'owner') queueVoice(to, voiceScript(state, m)); }
+      } else if (to) { queueSend(to, waText(state, m)); if (m.kind === 'pay-offer') queueQr(state, to, m); if (m.to !== 'owner') queueVoice(to, voiceScript(state, m)); }
       // a customer's list that cannot go out: the owner is told why, so nobody thinks the customer saw it
       if (!to && m.list && !skipOwner) {
         const k = state.customers.find((x) => x.id === m.to);
@@ -314,36 +362,85 @@ function createWhatsapp(o: WhatsappOpts) {
   }
 
   // ---------------------------------------------------------------- pages
+  // light or dark with the phone, like the dashboard; the QR always sits on white so every camera reads it
   function page(title: string, body: string) {
-    return '<!doctype html><html lang="hi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + esc(title) + '</title>' +
-      '<style>body{font-family:system-ui,sans-serif;background:#f6f3ec;color:#1d1b16;margin:0;padding:24px 16px;display:flex;justify-content:center}main{max-width:420px;width:100%;text-align:center}' +
-      'h1{font-size:22px;margin:0 0 6px}p{color:#5b564b;line-height:1.5}.amt{font-size:40px;font-weight:700;margin:12px 0}a.btn{display:block;background:#1f7a4d;color:#fff;text-decoration:none;padding:16px;border-radius:12px;font-size:18px;font-weight:600;margin:16px 0}' +
-      '.qr svg{width:100%;max-width:300px;height:auto;background:#fff;padding:12px;border-radius:12px}.note{font-size:14px}</style></head><body><main>' + body + '</main></body></html>';
+    return '<!doctype html><html lang="hi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><meta name="color-scheme" content="light dark"><title>' + esc(title) + '</title>' +
+      '<style>:root{--bg:#f6f3ec;--card:#fff;--ink:#1d1b16;--mute:#5b564b;--line:#e3ddd0;--accent:#1f7a4d;--accent-ink:#fff;--soft:#e7f2ec;--bad:#b3261e;--warn-bg:#fff4dc;--warn:#7a5300}' +
+      '@media (prefers-color-scheme:dark){:root{--bg:#14130f;--card:#1e1c17;--ink:#f1ede4;--mute:#a7a091;--line:#35322a;--accent:#3fae78;--accent-ink:#0d1a12;--soft:#1b2a21;--bad:#f2b8b5;--warn-bg:#2d2513;--warn:#f0c674}}' +
+      '*{box-sizing:border-box}body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--ink);margin:0;padding:24px 16px;display:flex;justify-content:center}main{max-width:420px;width:100%;text-align:center}' +
+      'h1{font-size:22px;margin:0 0 6px}h2{font-size:17px;margin:0 0 10px}p{color:var(--mute);line-height:1.5}.amt{font-size:40px;font-weight:700;margin:12px 0}' +
+      'a.btn,button.btn{display:block;width:100%;background:var(--accent);color:var(--accent-ink);text-decoration:none;padding:16px;border:0;border-radius:12px;font:600 18px system-ui,sans-serif;margin:16px 0;cursor:pointer}' +
+      'a.btn.ghost{background:transparent;color:var(--accent);border:1.5px solid var(--accent)}' +
+      '.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin:16px 0;text-align:left}' +
+      '.opt{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--line);border-radius:12px;margin:8px 0;cursor:pointer}.opt input[type=radio]{width:20px;height:20px;accent-color:var(--accent)}' +
+      '.opt b{margin-left:auto}input[type=number]{font:600 18px system-ui,sans-serif;width:120px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);margin-left:auto}' +
+      '.err{color:var(--bad);font-weight:600}.warn{background:var(--warn-bg);color:var(--warn);border-radius:12px;padding:12px;text-align:left}.ok{background:var(--soft);border-radius:12px;padding:10px;color:var(--ink)}' +
+      '.qr svg{width:100%;max-width:280px;height:auto;background:#fff;padding:12px;border-radius:12px}.note{font-size:14px}.upi{font-family:ui-monospace,monospace;font-size:15px;color:var(--ink)}a{color:var(--accent)}</style></head><body><main>' + body + '</main></body></html>';
   }
-  /** A customer's own pay page: today's baaki and a one-tap UPI button. No scanner, no typing the amount. */
-  function payPage(state: State, ref: string) {
+  const qrSvg = (text: string, level: string) => {
+    // vendored untyped UMD script; compiled to dist-server/server/, two levels below the repo root
+    const qr = (require('../../vendor/qrcode-generator.js') as any)(0, level);
+    qr.addData(text); qr.make();
+    return qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true });
+  };
+  const PAY_ERR: Record<string, string> = {
+    'not-number': 'Sirf raqam likhiye, jaise 200.', paise: 'Poore rupaye likhiye, paise nahi (jaise 200).', zero: 'Raqam 0 se zyada honi chahiye.',
+    'too-big': 'Ek baar mein UPI se ' + C.rupees(C.UPI_MAX) + ' tak hi bhej sakte hain.'
+  };
+  /**
+   * A customer's own pay page: today's baaki, then "poora ya thoda". The chosen amount (?amt=, checked against the baaki)
+   * becomes a UPI QR and a tap-to-pay button. More than the baaki is asked first (?over=1 once they agree), since the
+   * extra is kept as advance. Nothing is written here: the khata changes when the owner gets the payment.
+   */
+  function payPage(state: State, ref: string, q?: URLSearchParams) {
     const m = /^([A-Za-z0-9]{1,20})\.([0-9a-f]{16})$/.exec(ref || '');
     const c = m && state.customers.find((x) => x.id === m[1]);
     if (!c || !sameString(m![2], payToken(state, c.id))) return null;
     const bal = Math.max(0, Math.round(C.balance(state, c.id)));
-    return page(state.shop.name, '<h1>' + esc(state.shop.name) + '</h1><p>' + esc(/\b(ji|bhai|bhau|didi|aunty|uncle|sahab|saheb|madam|mausi|chacha|tai|sir|kaka|kaku|mama|seth)$/i.test(c.name.trim()) ? c.name.trim() : c.name.trim() + ' ji') + ', aapka baaki</p><div class="amt">' + esc(C.rupees(bal)) + '</div>' +
-      (bal > 0 && state.shop.upiId ? '<a class="btn" href="' + esc(C.upiLink(state, c, bal)) + '">UPI app se dein</a>' : '') +
-      '<p class="note">Cash dena ho toh dukaan par de dijiye aur WhatsApp par likhiye "cash de diya". Dono barabar hain.</p>');
+    const self = '/pay/' + c.id + '.' + m![2];
+    const cash = '<p class="note">Cash dena ho toh dukaan par de dijiye aur WhatsApp par likhiye "cash de diya". Dono barabar hain.</p>';
+    const head = '<h1>' + esc(state.shop.name) + '</h1><p>' + esc(/\b(ji|bhai|bhau|didi|aunty|uncle|sahab|saheb|madam|mausi|chacha|tai|sir|kaka|kaku|mama|seth)$/i.test(c.name.trim()) ? c.name.trim() : c.name.trim() + ' ji') + ', aapka baaki</p><div class="amt">' + esc(C.rupees(bal)) + '</div>';
+    if (bal <= 0) return page(state.shop.name, head + '<p class="ok">Koi baaki nahi 🎉 Dhanyavaad!</p>');
+    if (!state.shop.upiId) return page(state.shop.name, head + '<p>Dukaan ka UPI abhi set nahi hai.</p>' + cash);
+    const asked = q && (q.has('amt') || q.has('mode'));
+    const raw = q && q.get('mode') !== 'full' ? q.get('amt') : null;
+    // "Thoda" with the box left empty is a mistake, never a silent full-amount QR
+    const p = q && q.get('mode') === 'part' && !String(raw || '').trim() ? { ok: false, amount: null, balance: bal, full: false, extra: 0, error: 'not-number' as const }
+      : C.payAmount(state, c.id, asked ? raw : null, { over: !!q && q.get('over') === '1' });
+    const part = asked && !!raw && !p.full;
+    const chooser = '<form class="card" method="get" action="' + esc(self) + '"><h2>Kitna dena hai?</h2>' +
+      '<label class="opt"><input type="radio" name="mode" value="full"' + (part ? '' : ' checked') + '> Poora baaki <b>' + esc(C.rupees(bal)) + '</b></label>' +
+      '<label class="opt"><input type="radio" name="mode" value="part" id="part"' + (part ? ' checked' : '') + '> Thoda <input type="number" name="amt" inputmode="numeric" min="1" step="1" placeholder="₹" aria-label="Raqam"' +
+      (raw && /^\d{1,9}$/.test(raw) ? ' value="' + esc(raw) + '"' : '') + ' onfocus="document.getElementById(\'part\').checked=true"></label>' +
+      '<button class="btn" type="submit">QR banaiye</button></form>';
+    if (!p.ok) {
+      if (p.error === 'over') {
+        const yes = self + '?amt=' + p.amount + '&over=1', no = self + '?mode=full';
+        return page(state.shop.name, head + '<div class="warn"><b>' + esc(C.rupees(p.amount!)) + ' aapke baaki se ' + esc(C.rupees(p.extra)) + ' zyada hai.</b><br>Zyada diya toh ' + esc(C.rupees(p.extra)) + ' advance mein jama hoga, agli khareed mein kat jayega.</div>' +
+          '<a class="btn" href="' + esc(yes) + '">Haan, ' + esc(C.rupees(p.amount!)) + ' dena hai</a><a class="btn ghost" href="' + esc(no) + '">Nahi, poora baaki ' + esc(C.rupees(bal)) + ' dein</a>' + chooser + cash);
+      }
+      return page(state.shop.name, head + '<p class="err" role="alert">' + esc(PAY_ERR[p.error!] || 'Raqam theek nahi hai.') + '</p>' + chooser + cash);
+    }
+    const amt = p.amount!, link = C.upiLink(state, c, amt);
+    const after = p.extra ? 'Khata clear, ' + C.rupees(p.extra) + ' advance mein' : p.full ? 'Khata clear ho jayega 🎉' : 'Iske baad baaki: ' + C.rupees(bal - amt);
+    return page(state.shop.name, head +
+      '<div class="card" style="text-align:center"><h2>' + esc(C.rupees(amt)) + ' dein' + (p.full ? ' (poora)' : '') + '</h2><p class="note">' + esc(after) + '</p>' +
+      '<div class="qr">' + qrSvg(link, 'M') + '</div><p class="note">Kisi bhi UPI app se scan kijiye</p>' +
+      '<a class="btn" href="' + esc(link) + '">UPI app kholiye, ' + esc(C.rupees(amt)) + '</a>' +
+      '<p class="note">UPI ID: <span class="upi">' + esc(state.shop.upiId) + '</span><br>Payment milte hi dukaandaar khata update karenge. Tab tak kuch nahi badalta.</p></div>' +
+      chooser + cash);
   }
   /** Stage page: scan with any phone camera, WhatsApp opens with a greeting typed in. */
   function joinPage(state: State) {
     const num = digits(env.WA_WEB_DISPLAY_NUMBER) || (web && web.status().linked && web.number && web.number()) || '';
     if (!num) return null;
     const link = 'https://wa.me/' + num + '?text=' + encodeURIComponent('Namaste');
-    // vendored untyped UMD script; compiled to dist-server/server/, two levels below the repo root
-    const qr = (require('../../vendor/qrcode-generator.js') as any)(0, 'M');
-    qr.addData(link); qr.make();
-    return page('Khate se judiye', '<h1>' + esc(state.shop.name) + '</h1><p>Phone ke camera se scan kijiye. WhatsApp khulega, bas Send dabaiye.</p><div class="qr">' + qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true }) + '</div>' +
+    return page('Khate se judiye', '<h1>' + esc(state.shop.name) + '</h1><p>Phone ke camera se scan kijiye. WhatsApp khulega, bas Send dabaiye.</p><div class="qr">' + qrSvg(link, 'M') + '</div>' +
       '<p class="note">' + esc(link) + '</p>');
   }
 
   return {
-    stats, provider: 'web', handleWeb, webReady: !!web && stats.enabled, deliver, payPage, joinPage, idle: () => outQueue
+    stats, provider: 'web', qrPng, handleWeb, webReady: !!web && stats.enabled, deliver, payPage, joinPage, idle: () => outQueue
   };
 }
 

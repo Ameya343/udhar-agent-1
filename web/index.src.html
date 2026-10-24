@@ -1143,6 +1143,8 @@ try { var t = localStorage.getItem('udhaar-theme'); if (t !== 'light' && t !== '
     const gst = p.gstRegistered !== false, have = p.taxIdMasked ? ' (saved: <span class="mono">' + esc(p.taxIdMasked) + '</span>; leave empty to keep it)' : '';
     return '<label for="pfShop">Shop name</label><input type="text" id="pfShop" maxlength="80" required value="' + esc(p.shopName || (state && state.shop ? state.shop.name : '')) + '">' +
       '<label for="pfOwner">Owner name</label><input type="text" id="pfOwner" maxlength="80" required value="' + esc(p.ownerName || '') + '">' +
+      '<label for="pfUpi">UPI ID for customer payments</label><input type="text" id="pfUpi" class="mono" maxlength="100" autocomplete="off" spellcheck="false" inputmode="email" placeholder="guptakirana@okaxis" value="' + esc(state && state.shop ? state.shop.upiId || '' : '') + '">' +
+      '<p class="fnote">When a customer writes "QR bhejo" or "200 ka QR bhejo" on WhatsApp, the agent sends a UPI QR for that amount to this ID. Leave it empty to turn QR payments off.</p>' +
       '<label for="pfAddr">Shop address</label><textarea id="pfAddr" rows="2" maxlength="300" required>' + esc(p.address || '') + '</textarea>' +
       '<label class="chk"><input type="checkbox" id="pfNoGst"' + (gst ? '' : ' checked') + '> Not GST registered</label>' +
       '<div id="pfGstBox"' + (gst ? '' : ' hidden') + '><label for="pfGstin">GSTIN (15 characters)' + (gst ? have : '') + '</label><input type="text" id="pfGstin" class="mono" maxlength="15" autocomplete="off" spellcheck="false" placeholder="22AAAAA0000A1Z5"></div>' +
@@ -1151,7 +1153,7 @@ try { var t = localStorage.getItem('udhaar-theme'); if (t !== 'light' && t !== '
   }
   function profileValues(root) {
     const q = (id) => root.querySelector('#' + id), noGst = q('pfNoGst').checked;
-    return { shopName: q('pfShop').value, ownerName: q('pfOwner').value, address: q('pfAddr').value, gstRegistered: !noGst,
+    return { shopName: q('pfShop').value, ownerName: q('pfOwner').value, upiId: q('pfUpi').value.trim(), address: q('pfAddr').value, gstRegistered: !noGst,
       gstin: noGst ? '' : q('pfGstin').value.trim().toUpperCase(), pan: noGst ? q('pfPan').value.trim().toUpperCase() : '' };
   }
   document.addEventListener('change', (e) => {

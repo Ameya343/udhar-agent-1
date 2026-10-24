@@ -162,6 +162,8 @@ export interface Message {
   level?: number;
   upi?: string;
   amount?: number;
+  /** pay-offer: the part (or extra) amount the customer said they want to pay now; the pay link opens with it chosen */
+  payAmount?: number;
   balance?: number;
   orderId?: string;
   claimId?: string;
@@ -553,6 +555,20 @@ export type HandledIntent =
 export interface OwnerResult {
   intent: HandledIntent;
   messages: Message[];
+}
+
+/** payAmount: the amount a customer chose to pay back, checked against the baaki. */
+export interface PayChoice {
+  ok: boolean;
+  /** rupees to put in the UPI QR (null when not even a number) */
+  amount: number | null;
+  /** the baaki now, whole rupees, never below 0 */
+  balance: number;
+  /** pays the whole baaki */
+  full: boolean;
+  /** rupees above the baaki, kept as advance */
+  extra: number;
+  error?: 'none-due' | 'not-number' | 'paise' | 'zero' | 'too-big' | 'over';
 }
 
 /** A customer's message as the rules or the model read it (handleCustomerMessage's opts.intent). */

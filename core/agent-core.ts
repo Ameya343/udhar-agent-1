@@ -8,7 +8,7 @@
  * Plus: UPI notification matching, scheduled reminders, evening summary, credit scores.
  */
 import type {
-  State, Shop, Customer, Txn, TxnType, Line, RawLine, LineParse, Message, MessageMeta, CashClaim, Price, Supply, SupplierPay,
+  State, Shop, Customer, Txn, PayChoice, TxnType, Line, RawLine, LineParse, Message, MessageMeta, CashClaim, Price, Supply, SupplierPay,
   Wholesaler, WsLine, WsOrder, WsGroup, Order, OwnerAsk, Consent, UpiInfo, Pending, OwnerIntent, ListIntent, FixIntent, Person,
   SwapIntent, MultiPair, MultiIntent, ItemRemoveIntent, ListEdit, HandledIntent, OwnerResult, CustomerIntent, SupplierParse,
   WholesaleParse, ActionArgs, Tokens, UnderstoodItem, IsoDate, LogEntry, Vouch
@@ -1579,6 +1579,34 @@ function factory() {
   function upiLink(state: State, c: Customer, amount: number): string {
     return 'upi://pay?pa=' + encodeURIComponent(state.shop.upiId) + '&pn=' + encodeURIComponent(state.shop.name) +
       '&am=' + Math.round(amount) + '&cu=INR&tn=' + encodeURIComponent('UDH-' + c.id);
+  }
+
+  /** "guptakirana@okaxis", "98xxxxxxxx@ybl": a UPI ID as the shop types it, cleaned; null when it cannot be one. */
+  function validUpi(raw: unknown): string | null {
+    const s = String(raw == null ? '' : raw).trim().toLowerCase();
+    return /^[a-z0-9][a-z0-9._-]{1,255}@[a-z][a-z0-9]{1,63}$/.test(s) ? s : null;
+  }
+  // most banks cap one UPI payment at ₹1 lakh, so a typo like 5000000 never becomes a QR
+  const UPI_MAX = 100000;
+  /**
+   * "Poora ya thoda": the amount a customer chose to pay back, checked. Empty means the full baaki. Whole rupees only,
+   * more than 0, at most the baaki; more than the baaki is ok only once they agreed (over) that the extra is kept as
+   * advance. Nothing is written here: the khata changes only when the payment is confirmed.
+   */
+  function payAmount(state: State, custId: string, raw: unknown, opts?: { over?: boolean }): PayChoice {
+    const bal = Math.max(0, Math.round(balance(state, custId)));
+    const no = (error: PayChoice['error'], amount: number | null = null): PayChoice => ({ ok: false, amount, balance: bal, full: false, extra: amount && amount > bal ? amount - bal : 0, error });
+    if (bal <= 0) return no('none-due');
+    const s = raw == null ? '' : String(raw).replace(/[₹,\s]/g, '').replace(/^(rs\.?|inr)/i, '').replace(/\/-$/, '');
+    if (!s) return { ok: true, amount: bal, balance: bal, full: true, extra: 0 };
+    const m = /^(\d{1,9})(?:\.(\d{1,2}))?$/.exec(s);
+    if (!m) return no('not-number');
+    if (m[2] && +m[2] > 0) return no('paise');
+    const amount = +m[1];
+    if (amount <= 0) return no('zero');
+    if (amount > UPI_MAX) return no('too-big', amount);
+    if (amount > bal && !(opts && opts.over)) return no('over', amount);
+    return { ok: true, amount, balance: bal, full: amount === bal, extra: Math.max(0, amount - bal) };
   }
 
   // ---------------------------------------------------- apply an intent
@@ -3365,6 +3393,14 @@ function factory() {
   // "maine 200 de diye", "मैंने ₹60 दे दिए": a stated amount handed over with no UPI word is cash at the counter, a
   // claim the owner confirms. Without an amount ("nudes de diya") it stays a UPI-style note, never a claim on the balance.
   const HANDED_RX = /\s(de diye|de diya|de diyi|de di|diye|diya|die|dia|de gaya|de gayi|de gaye|de dia)\s/;
+  // "QR bhejo", "200 pay karna hai", "link bhejo": wants to pay now and needs the shop's UPI, not a claim that they paid.
+  // "qr" is read from the raw text: tokenize turns it into "kr", which is also short for "kar".
+  const PAY_NOW_RX = /\s(kyuar|kiuar|kyuar kod|scaner|skaner|link|upi id|upi aidi|pay karna|pay karni|pay karu|pay karun|pay karoon|pay kaise|pay kar du|pay kar dun|pay kar deta|pay kar deti|online dena|online deta|online deti|upi se dena|upi se deta|upi se deti|upi karna|upi kar du|upi kar deta|gpay karna|paytm karna|pement karna|pement karni|pement kaise|pement kar du)\s/;
+  const PAID_RX = /\s(diya|diye|die|dia|kiya|kiye|kar diya|kar diye|bhej diya|bhej diye|ho gaya|ho gai|hogaya|tha|the|thi)\s/;
+  function wantsToPay(text: unknown): boolean {
+    const raw = ' ' + String(text || '').toLowerCase() + ' ', t = tokenize(text).text;
+    return (PAY_NOW_RX.test(t) || /[\s\d](qr|q\.r\.?|scanner|क्यूआर|स्कैनर)[\s?.!,]/.test(raw)) && !PAID_RX.test(t);
+  }
   const cashClaimWords = (t: string) => CASH_RX.test(t) || (!UPI_WORD_RX.test(t) && HANDED_RX.test(t) && /\d/.test(t));
   const PAY_LATER = /\s(dunga|dungi|de dunga|de dungi|bhej dunga|bhejunga|bhejungi|de sakta|de sakti|de skta|denge|dene|kar dunga|kar dungi|dedunga|de deta|de denge|bhej denge)\s/;
   const GREETING_RX = /^\s*(hi+|hello|helo|hey|namaste|namaskar|ram ram|jai shri krishna|good morning|gud morning|good evening|gupta ji|seth ji|bhaiya|bhaiyya|uncle)(\s+ji)?\s*$/;
@@ -3546,6 +3582,26 @@ function factory() {
    * Customer replies on WhatsApp ("kal dunga", "Friday tak", "paid kar diya"). opts.intent is the LLM's reading
    * (customerIntentFromLlm); without it the strict rules decide. opts.now: the clock for the per-customer limits.
    */
+  /** "QR bhejo" / "200 pay karna hai": the baaki and the shop's UPI. Nothing is written until the payment is confirmed. */
+  function offerPay(state: State, c: Customer, said: { amount: number } | null, out: Message[]): Message[] {
+    const want = said && said.amount > 0 ? Math.round(said.amount) : null;
+    const p = payAmount(state, c.id, want, { over: true });
+    if (p.error === 'none-due') { emit(state, out, c.id, 'Aapka koi baaki nahi hai 🙏 - ' + state.shop.name); return out; }
+    if (!state.shop.upiId) {
+      emit(state, out, c.id, 'Baaki: ' + rupees(p.balance) + '. Dukaan ka UPI abhi set nahi hai 🙏 Dukaan par cash de dijiye, phir "cash de diya" likh dijiye.');
+      // the owner hears once why the customer got no QR, and where to fix it
+      if (allowOnce(c, 'relay', Date.now())) emit(state, out, 'owner', '💳 ' + c.name + ' UPI QR maang rahe the, par dukaan ka UPI ID set nahi hai. Dashboard → Menu → Shop profile mein UPI ID daal dijiye, phir QR apne aap jayega.');
+      return out;
+    }
+    const amt = p.ok ? p.amount! : null;
+    emit(state, out, c.id, '💳 ' + state.shop.name + '\nAapka baaki: ' + rupees(p.balance) +
+      (amt && amt < p.balance ? '\nAap ' + rupees(amt) + ' de rahe hain, baaki ' + rupees(p.balance - amt) + ' rahega.' : '') +
+      (amt && amt > p.balance ? '\nAapne ' + rupees(amt) + ' likha, baaki sirf ' + rupees(p.balance) + ' hai. Neeche poore ' + rupees(p.balance) + ' ka QR hai. ' + rupees(amt) + ' hi dena ho toh link par chuniye: zyada ' + rupees(amt - p.balance) + ' advance mein jama hoga.' : '') +
+      '\n' + (amt && amt < p.balance ? rupees(amt) : 'Poore ' + rupees(p.balance)) + ' ka UPI QR neeche bhej raha hoon. UPI ID: ' + state.shop.upiId +
+      '\nPayment milte hi dukaandaar khata update karenge.', { kind: 'pay-offer', amount: p.balance, payAmount: want && amt ? amt : undefined });
+    return out;
+  }
+
   function handleCustomerMessage(state: State, custId: string, text: string, opts?: { intent?: CustomerIntent | null; now?: number }): Message[] {
     opts = opts || {};
     const out: Message[] = [];
@@ -3557,9 +3613,10 @@ function factory() {
     if (consentOf(state, c.id).status === 'granted' && REVOKE_RX.test(String(text).toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim())) return revokeConsent(state, c.id);
     const pre = customerPrefilter(text); // emoji, abuse and opt-out never depend on the LLM
     let ci: CustomerIntent = pre || (c.optedOut ? null : opts.intent) || customerIntentRules(state, c, text);
+    if (['pay_claim', 'abusive', 'opt_out', 'dispute', 'correction'].indexOf(ci.intent) < 0 && wantsToPay(text)) ci = { intent: 'pay_now', parser: ci.parser };
     if (c.optedOut) {
       // an opted-out number is left alone, unless it comes back with something real ("start", hisaab, payment, order)
-      const back = /^\s*(start|shuru|chalu|resume)\b/i.test(String(text)) || ['balance', 'pay_claim', 'order', 'promise', 'vouch'].indexOf(ci.intent) >= 0 || (orderLines(state, text).some((l) => l.from === 'memory'));
+      const back = /^\s*(start|shuru|chalu|resume)\b/i.test(String(text)) || ['balance', 'pay_claim', 'pay_now', 'order', 'promise', 'vouch'].indexOf(ci.intent) >= 0 || (orderLines(state, text).some((l) => l.from === 'memory'));
       if (!back || ci.intent === 'abusive' || ci.intent === 'opt_out') return out;
       delete c.optedOut;
       log(state, 'customer', c.name + ' wrote again; WhatsApp messages back on');
@@ -3575,7 +3632,7 @@ function factory() {
     const llm = ci.parser === 'llm';
     if (llm && ci.lang) c.lang = ci.lang; // replies go out in this language (the server translates them)
     const asking = orders(state).filter((o) => o.custId === c.id && o.status === 'ask').pop();
-    let co: { lines: Line[]; cue?: boolean; add?: boolean } = ci.intent !== 'pay_claim' ? customerOrder(state, text) : { lines: [] };
+    let co: { lines: Line[]; cue?: boolean; add?: boolean } = ci.intent !== 'pay_claim' && ci.intent !== 'pay_now' ? customerOrder(state, text) : { lines: [] };
     if (llm && ci.intent === 'order' && ci.items && ci.items.length) {
       // the AI's items, in any language; the rules' reading stays only when none of them is usable
       const lines = linesFromItems(state, ci.items, text);
@@ -3595,6 +3652,8 @@ function factory() {
       emit(state, out, c.id, '📄 ' + state.shop.name + '\nAapke naam: ' + rupees(Math.round(bal)) + ' baaki\nPichli entries:\n' + recent + '\nKya yeh hisaab sahi hai?', { kind: 'statement', balance: Math.round(bal) });
       return out;
     }
+    // "QR bhejo", "200 pay karna hai": the shop's UPI for the amount they choose (on WhatsApp, the pay link to pick it)
+    if (ci.intent === 'pay_now') return offerPay(state, c, extractAmount(tok, new Set()), out);
     // "mera udhaar bas 40 hai", "daal nahi liya tha": a dispute or a correction goes to the owner, never a menu
     if (ci.intent === 'dispute' || ci.intent === 'correction') return forwardDispute(state, c, text, ci, out, nowMs);
     const v = !c.guest && vouchOn() ? parseVouch(state, text) : null;
@@ -3645,7 +3704,7 @@ function factory() {
     if (ci.intent === 'promise') {
       const part = extractAmount(tok, new Set());
       if (part && part.amount < bal) {
-        emit(state, out, c.id, 'Koi baat nahi 🙏 Abhi ' + rupees(part.amount) + ' bhej dijiye, baaki ' + rupees(bal - part.amount) + ' ke liye ek tareekh bata dijiye.');
+        emit(state, out, c.id, 'Koi baat nahi 🙏 Abhi ' + rupees(part.amount) + ' bhej dijiye, baaki ' + rupees(bal - part.amount) + ' ke liye ek tareekh bata dijiye.', { kind: 'pay-offer', amount: Math.round(bal), payAmount: Math.round(part.amount) });
         if (allowOnce(c, 'relay', nowMs)) emit(state, out, 'owner', '💬 ' + c.name + ' abhi ' + rupees(part.amount) + ' dena chahte hain.');
         return out;
       }
@@ -3925,7 +3984,7 @@ function factory() {
       ]
     },
     // an empty khata, to show first-day setup
-    nayi: { shop: { id: 'nayi', name: 'Nayi dukaan (khali khata)', owner: '', upiId: 'nayidukaan@upi', city: 'Nagpur' }, seed: 1, people: [], open: [] }
+    nayi: { shop: { id: 'nayi', name: 'Nayi dukaan (khali khata)', owner: '', upiId: '', city: 'Nagpur' }, seed: 1, people: [], open: [] }
   };
 
   function seedDemo(state: State, which?: string): State {
@@ -4439,7 +4498,7 @@ function factory() {
     createState, seedDemo, handleOwnerMessage, parseOwnerMessage, applyIntent, recordOwnerMessage,
     handleUpiNotification, parseUpiText, handleCustomerMessage, confirmCash, pendingCash, runMorningJobs, runEveningSummary, advanceDay,
     // ledger + scores
-    balance, totalOutstanding, customerScore, consentOf, requestConsent, answerConsent, revokeConsent, lenderView, DEMO_LENDER, shopProfile, dashboard, DEMO_SHOPS, creditHistory, findCustomers, upiLink,
+    balance, payAmount, UPI_MAX, wantsToPay, validUpi, totalOutstanding, customerScore, consentOf, requestConsent, answerConsent, revokeConsent, lenderView, DEMO_LENDER, shopProfile, dashboard, DEMO_SHOPS, creditHistory, findCustomers, upiLink,
     // llm
     llmRequestParts, intentFromLlm,
     // shared action layer

@@ -124,6 +124,17 @@ Agent → Customer:  200 jama ho gaya. Kul baaki 1,040.
 
 Nothing is credited until the owner confirms. "maine 1,500 gpay kar diya" works the same way. A forwarded bank SMS ("INR 450 credited ... UPI") can be matched to a customer, but this is **simulated SMS parsing, not a live bank or UPI link**. It writes at once only on a known UPI id, a phone number in the UPI id, or the payment link's tag; a name that only looks like a khata ("RAMESH KUMAR" for Ramesh) is asked first: *Ramesh ka hai? haan / nahi*. An SMS for money the owner **sent** ("debited ... to PAPPU") is never written as that person's jama, and the big-amount, paise and ₹1 rules of typed entries apply here too.
 
+#### Pay back by UPI QR on WhatsApp: full or part
+
+```
+Customer:  200 ka QR bhejo
+Agent → Customer:  Aapka baaki: ₹500. Aap ₹200 de rahe hain, baaki ₹300 rahega.
+                   ₹200 ka UPI QR neeche bhej raha hoon. ...
+Agent → Customer:  [QR image: upi://pay ... am=200]  "Kisi bhi UPI app se scan kijiye"
+```
+
+The customer stays on WhatsApp. "QR bhejo" gets a QR image for the whole baaki; "200 ka QR bhejo" (or "200 pay karna hai") gets one for ₹200. The QR is `upi://pay` with `pa`, `pn`, `am`, `tn=UDH-<id>`, sent as a PNG (scan it from another phone, or from the gallery in any UPI app). The hisaab reply and reminders end with how to ask for it. A link to the customer's own pay page comes along for paying on the same phone: it has a tap-to-pay button and lets them change the amount. Amounts are whole rupees above ₹0 and up to the baaki; asking for more gets the QR for the baaki, and paying extra as advance needs an explicit "Haan" on the page. The QR pays the shop's own UPI ID, which the owner adds once in **Menu → Shop profile → UPI ID for customer payments** (a new shop has none; until it is set, a customer asking for a QR is told to pay cash and the owner is told where to add it). **Nothing is written when a QR is sent**: the khata changes only when the payment is confirmed (the forwarded UPI SMS, or the owner's own "jama").
+
 ### 4.5 Reminders (three at most)
 
 With the scheduler on, the agent reminds on the promised date, then about three and seven days later, each a little firmer. **After three reminders it stops** and tells the owner once to talk in person; there is no endless weekly loop. Customers can reply `stop` to opt out. The owner gets an evening summary of the day.

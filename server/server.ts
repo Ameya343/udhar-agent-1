@@ -279,8 +279,9 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
         let ref = '';
         try { ref = decodeURIComponent(url.pathname.slice(5)); } catch (e) { return send(res, 404, { error: 'not found' }); }
         const hadSecret = !!state.paySecret;
-        const html = wa.payPage(state, ref);
+        const html = wa.payPage(state, ref, url.searchParams);
         if (!hadSecret && state.paySecret) save(); // keeps the pay-link secret once made
+        res.setHeader('referrer-policy', 'no-referrer'); // the link's secret stays out of other sites' logs
         return html ? send(res, 200, html, 'text/html; charset=utf-8') : send(res, 404, { error: 'not found' });
       }
       if (req.method === 'GET' && url.pathname === '/join') {
@@ -298,7 +299,11 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
         const j = await jsonBody(req);
         if (!j.body) { if (j.code === 413) res.setHeader('connection', 'close'); return send(res, j.code!, { error: j.error }); }
         const b = j.body;
-        if (url.pathname === '/api/auth/setup') return authRoute(req, res, auth.setup(b, !!env.ADMIN_KEY && (sameKey(b.adminKey, env.ADMIN_KEY) || keyOk(req))));
+        // the shop's UPI ID (Shop profile): the one customers' QRs pay to. Empty turns the QR off; anything else must look like one.
+        const upi = 'upiId' in b ? (String(b.upiId || '').trim() ? C.validUpi(b.upiId) : '') : null;
+        if (upi === null && 'upiId' in b) return send(res, 400, { error: 'UPI ID should look like name@bank, for example guptakirana@okaxis' });
+        const keepUpi = (out: { ok: boolean }) => upi != null && out.ok ? serial(() => { state.shop.upiId = upi; save(); }) : Promise.resolve();
+        if (url.pathname === '/api/auth/setup') { const out = auth.setup(b, !!env.ADMIN_KEY && (sameKey(b.adminKey, env.ADMIN_KEY) || keyOk(req))); await keepUpi(out); return authRoute(req, res, out); }
         if (url.pathname === '/api/auth/login') return authRoute(req, res, auth.login(b));
         if (url.pathname === '/api/auth/logout') { auth.logout(req.headers.cookie); res.setHeader('set-cookie', auth.clearCookie()); return send(res, 200, { ok: true }); }
         if (url.pathname === '/api/auth/password') {
@@ -309,7 +314,8 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
           if (!isOwner(req)) return send(res, 403, { error: 'log in first' });
           const out = auth.saveProfile(b);
           if (out.ok && out.profile) await serial(() => { state.shop.name = out.profile!.shopName; state.shop.owner = out.profile!.ownerName; save(); });
-          return authRoute(req, res, out);
+          await keepUpi(out);
+          return authRoute(req, res, Object.assign(out, { upiId: state.shop.upiId || '' }));
         }
         return send(res, 404, { error: 'not found' });
       }
