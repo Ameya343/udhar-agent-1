@@ -12,12 +12,13 @@
 :root {
   --bg: #08080a;
   --app: rgba(14, 14, 18, .82);
-  --side: rgba(255, 255, 255, .025);
-  --card: rgba(255, 255, 255, .035);
-  --card-2: rgba(255, 255, 255, .06);
+  --ink: 255, 255, 255;
+  --side: rgba(var(--ink), .025);
+  --card: rgba(var(--ink), .035);
+  --card-2: rgba(var(--ink), .06);
   --solid: #131318;
-  --line: rgba(255, 255, 255, .08);
-  --line-2: rgba(255, 255, 255, .14);
+  --line: rgba(var(--ink), .08);
+  --line-2: rgba(var(--ink), .14);
   --text: #f4f4f6;
   --text-2: #a3a3ad;
   --text-3: #8d8d99;
@@ -34,16 +35,59 @@
   --green: #30a46c;
   --green-2: #3dd68c;
   --green-soft: rgba(48, 164, 108, .16);
-  --hover: rgba(255, 255, 255, .05);
+  --hover: rgba(var(--ink), .05);
   --sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
   --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
   --radius: 20px;
+  --red-t: #ff8589;
+  --inv-bg: #fff; --inv-fg: #0a0a0c;
+  --menu: #17171c; --side-solid: rgba(14, 14, 18, .92); --input: rgba(0, 0, 0, .35);
+  --btn-d1: #2a2a33; --btn-d2: #1a1a20; --btn-d1h: #33333d; --btn-d2h: #202027;
+  --panel-1: #17151f; --panel-2: #111115; --dot-off: #3a3a44; --scroll: #2c2c35;
+  --shadow-app: 0 30px 80px rgba(0, 0, 0, .55); --shadow-card: 0 10px 30px rgba(0, 0, 0, .25); --overlay: rgba(0, 0, 0, .6);
   color-scheme: dark;
 }
+/* light theme: same layout, readable in a bright shop */
+:root[data-theme="light"] {
+  --bg: #f3f1f8;
+  --app: rgba(255, 255, 255, .9);
+  --ink: 24, 18, 48;
+  --solid: #ffffff;
+  --line: rgba(24, 18, 48, .1);
+  --line-2: rgba(24, 18, 48, .18);
+  --text: #16131f;
+  --text-2: #4a4658;
+  --text-3: #6a6679;
+  --violet: #7c3aed;
+  --violet-2: #6d28d9;
+  --violet-soft: rgba(124, 58, 237, .1);
+  --red: #d92d33;
+  --red-t: #c3262c;
+  --red-soft: rgba(217, 45, 51, .1);
+  --amber: #a35f00;
+  --amber-soft: rgba(245, 158, 11, .14);
+  --green: #1d8a55;
+  --green-2: #158a50;
+  --green-soft: rgba(21, 138, 80, .12);
+  --hover: rgba(24, 18, 48, .045);
+  --card-2: rgba(24, 18, 48, .05);
+  --inv-bg: #16131f; --inv-fg: #ffffff;
+  --menu: #ffffff; --side-solid: rgba(255, 255, 255, .95); --input: #ffffff;
+  --btn-d1: #2a2340; --btn-d2: #16131f; --btn-d1h: #3a3158; --btn-d2h: #221d33;
+  --panel-1: #ffffff; --panel-2: #faf9fd; --dot-off: #cfcbdc; --scroll: #cfcbdc;
+  --shadow-app: 0 24px 70px rgba(60, 40, 120, .14); --shadow-card: 0 6px 22px rgba(60, 40, 120, .08); --overlay: rgba(30, 20, 60, .35);
+  color-scheme: light;
+}
+:root[data-theme="light"] body { background: radial-gradient(900px 420px at 50% -160px, rgba(139, 92, 246, .18), transparent 70%), var(--bg); }
+:root[data-theme="light"] .btn.dark { color: #fff; }
+:root[data-theme="light"] .av::after { border-color: #fff; }
+:root[data-theme="light"] .kpi .meter .track::before, :root[data-theme="light"] .kpi .meter .track::after { border-color: #fff; box-shadow: 0 0 0 1px var(--line-2); }
+:root[data-theme="light"] .logo .mark, :root[data-theme="light"] .mark { color: #fff; }
+html, body, .app, .side, .kpi, .card, .scard, .panel, .btn, .seg button, th, td, input, select { transition: background-color .25s, color .25s, border-color .25s; }
 * { box-sizing: border-box; }
-html { background: var(--bg); scrollbar-color: #34343e transparent; }
+html { background: var(--bg); scrollbar-color: var(--scroll) transparent; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: #2c2c35; border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
 ::-webkit-scrollbar-track { background: transparent; }
 body {
   margin: 0; min-height: 100vh; color: var(--text); font: 14.5px/1.45 var(--sans); -webkit-text-size-adjust: 100%;
@@ -65,13 +109,13 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
   max-width: 1440px; margin: 18px auto; min-height: calc(100vh - 36px);
   display: grid; grid-template-columns: 264px minmax(0, 1fr);
   background: radial-gradient(760px 260px at 55% -90px, rgba(139, 92, 246, .30), transparent 72%), var(--app); border: 1px solid var(--line); border-radius: 26px; overflow: clip;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .05);
+  box-shadow: var(--shadow-app), inset 0 1px 0 rgba(var(--ink), .05);
   backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
 }
 .app.collapsed { grid-template-columns: 76px minmax(0, 1fr); }
 
 /* sidebar */
-.side { border-right: 1px solid var(--line); background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.012) 40%, transparent); padding: 22px 16px; display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.side { border-right: 1px solid var(--line); background: linear-gradient(180deg, rgba(var(--ink), .045), rgba(var(--ink), .012) 40%, transparent); padding: 22px 16px; display: flex; flex-direction: column; gap: 22px; min-width: 0; }
 .logo { display: flex; align-items: center; gap: 10px; }
 .logo .mark { width: 30px; height: 30px; border-radius: 9px; flex: none; display: grid; place-items: center; font-weight: 800; font-size: 15px; background: linear-gradient(135deg, var(--violet), #5b3fd1); box-shadow: 0 0 18px rgba(139, 92, 246, .45); }
 .logo h1 { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -.02em; white-space: nowrap; margin-right: auto; }
@@ -85,8 +129,8 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .nav .lbl { font-size: 12px; color: var(--text-3); padding: 0 12px 4px; }
 .nav a { position: relative; display: flex; align-items: center; gap: 11px; padding: 9px 12px; border-radius: 12px; color: var(--text-2); text-decoration: none; font-size: 14px; font-weight: 500; }
 .nav a:hover { color: var(--text); background: var(--hover); }
-.nav a[aria-current="page"] { color: var(--text); background: linear-gradient(90deg, rgba(255,255,255,.09), rgba(255,255,255,.05)); box-shadow: inset 0 0 0 1px var(--line); }
-.nav a[aria-current="page"]::after { content: ""; position: absolute; right: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 3px; background: #fff; box-shadow: 0 0 10px rgba(255,255,255,.6); }
+.nav a[aria-current="page"] { color: var(--text); background: linear-gradient(90deg, rgba(var(--ink), .09), rgba(var(--ink), .05)); box-shadow: inset 0 0 0 1px var(--line); }
+.nav a[aria-current="page"]::after { content: ""; position: absolute; right: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 3px; background: var(--text); box-shadow: 0 0 10px rgba(var(--ink), .6); }
 .nav a .cnt { margin-left: auto; font-size: 11px; font-family: var(--mono); color: var(--text-3); }
 .side .shopbox { margin-top: auto; border: 1px solid var(--line); background: var(--card); border-radius: 16px; padding: 12px; }
 .side .shopbox small { display: block; font-size: 12px; color: var(--text-3); margin-bottom: 6px; }
@@ -106,17 +150,23 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .crumb b { color: var(--text); font-weight: 600; }
 .date { font-size: 12.5px; color: var(--text-2); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; white-space: nowrap; font-family: var(--mono); }
 .btn { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line-2); background: transparent; border-radius: 12px; padding: 8px 14px; transition: background .15s, border-color .15s; font-size: 13.5px; font-weight: 500; white-space: nowrap; color: var(--text); }
-.btn:hover { background: var(--hover); border-color: rgba(255,255,255,.24); }
-.btn.primary { background: #fff; border-color: #fff; color: #0a0a0c; font-weight: 600; }
+.btn:hover { background: var(--hover); border-color: rgba(var(--ink), .24); }
+.btn.primary { background: var(--inv-bg); border-color: var(--inv-bg); color: var(--inv-fg); font-weight: 600; }
 .btn.primary:hover { background: #e4e4e7; }
-.btn.dark { background: linear-gradient(180deg, #2a2a33, #1a1a20); border-color: var(--line-2); padding: 11px 24px; font-weight: 600; box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 8px 24px rgba(0,0,0,.35); }
-.btn.dark:hover { background: linear-gradient(180deg, #33333d, #202027); }
+.btn.dark { background: linear-gradient(180deg, var(--btn-d1), var(--btn-d2)); border-color: var(--line-2); padding: 11px 24px; font-weight: 600; box-shadow: inset 0 1px 0 rgba(var(--ink), .1), 0 8px 24px rgba(0,0,0,.35); }
+.btn.dark:hover { background: linear-gradient(180deg, var(--btn-d1h), var(--btn-d2h)); }
 .btn:disabled { opacity: .5; cursor: default; }
+.themebtn { gap: 7px; }
+.themebtn .t-dark { display: none; }
+:root[data-theme="light"] .themebtn .t-dark { display: inline; }
+:root[data-theme="light"] .themebtn .t-light { display: none; }
+.themebtn svg.i { transition: transform .4s; }
+.themebtn:hover svg.i { transform: rotate(-25deg); }
 .more { position: relative; }
 .more summary { list-style: none; }
 .more summary::-webkit-details-marker { display: none; }
 .more summary.iconbtn { width: 38px; height: 38px; border-radius: 12px; border-color: var(--line-2); }
-.more .menu { position: absolute; right: 0; top: calc(100% + 6px); background: #17171c; border: 1px solid var(--line-2); border-radius: 14px; box-shadow: 0 16px 40px rgba(0,0,0,.6); padding: 5px; min-width: 190px; z-index: 6; }
+.more .menu { position: absolute; right: 0; top: calc(100% + 6px); background: var(--menu); border: 1px solid var(--line-2); border-radius: 14px; box-shadow: 0 16px 40px rgba(0,0,0,.6); padding: 5px; min-width: 190px; z-index: 6; }
 .more .menu button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 9px 11px; border-radius: 9px; font-size: 14px; }
 .more .menu button:hover { background: var(--hover); }
 .pagehead { display: flex; align-items: center; gap: 16px; margin: 26px 0 22px; flex-wrap: wrap; }
@@ -128,7 +178,7 @@ main { min-width: 0; }
 .view > * + * { margin-top: 16px; }
 h2 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: -.01em; }
 h3 { font-size: 11px; margin: 0 0 10px; color: var(--text-3); font-weight: 500; text-transform: uppercase; letter-spacing: .06em; font-family: var(--mono); }
-.card { position: relative; background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; min-width: 0; box-shadow: inset 0 1px 0 rgba(255,255,255,.04); }
+.card { position: relative; background: linear-gradient(180deg, rgba(var(--ink), .05), rgba(var(--ink), .02)); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; min-width: 0; box-shadow: inset 0 1px 0 rgba(var(--ink), .04); }
 .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
 .card-head .sub { color: var(--text-3); font-size: 13px; }
 .card-head .right { margin-left: auto; }
@@ -141,30 +191,30 @@ a.sub:hover { text-decoration: underline; }
 .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .kpi {
   position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 16px 18px; min-width: 0; display: flex; flex-direction: column;
-  background: radial-gradient(130% 90% at 0% 0%, rgba(255,255,255,.085), transparent 55%), linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.012));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 10px 30px rgba(0,0,0,.25); transition: border-color .15s;
+  background: radial-gradient(130% 90% at 0% 0%, rgba(var(--ink), .085), transparent 55%), linear-gradient(180deg, rgba(var(--ink), .04), rgba(var(--ink), .012));
+  box-shadow: inset 0 1px 0 rgba(var(--ink), .06), var(--shadow-card); transition: border-color .15s;
 }
 .kpi:hover { border-color: var(--line-2); }
 .kpi .kh { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; min-width: 0; }
-.kpi .ico { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none; color: var(--text); border: 1px solid var(--line-2); background: linear-gradient(145deg, rgba(255,255,255,.12), rgba(255,255,255,.03)); box-shadow: inset 0 1px 0 rgba(255,255,255,.08); }
+.kpi .ico { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none; color: var(--text); border: 1px solid var(--line-2); background: linear-gradient(145deg, rgba(var(--ink), .12), rgba(var(--ink), .03)); box-shadow: inset 0 1px 0 rgba(var(--ink), .08); }
 .kpi .ico svg.i { width: 18px; height: 18px; }
 .kpi .kt { min-width: 0; flex: 1; }
 .kpi .kt small { display: block; font-size: 11.5px; color: var(--text-3); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kpi .kt b { display: block; font-size: 20px; line-height: 1.2; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
 .kpi .kt b.kname { font-size: 17px; font-weight: 600; }
 .kpi .kh > small { font-size: 13px; color: var(--text-2); font-weight: 500; line-height: 1.25; min-width: 0; flex: 1; }
-.kpi .dots { margin-left: auto; width: 32px; height: 32px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,.05); display: grid; place-items: center; color: var(--text-2); flex: none; padding: 0; transition: background .15s, color .15s; }
-.kpi .dots:hover { background: rgba(255,255,255,.1); color: var(--text); }
+.kpi .dots { margin-left: auto; width: 32px; height: 32px; border-radius: 10px; border: 1px solid var(--line); background: rgba(var(--ink), .05); display: grid; place-items: center; color: var(--text-2); flex: none; padding: 0; transition: background .15s, color .15s; }
+.kpi .dots:hover { background: rgba(var(--ink), .1); color: var(--text); }
 .kpi .lab { display: block; font-size: 11.5px; color: var(--text-3); margin-bottom: 2px; }
 .kpi > b, .kpi b.big, .kpi b.mid { display: block; line-height: 1.15; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
 .kpi > b { font-size: 26px; }
 .kpi b.big { font-size: 30px; }
 .kpi b.mid { font-size: 22px; }
-.kpi b.bad { color: #ff6b70; }
+.kpi b.bad { color: var(--red-t); }
 .kpi .ksub, .kpi > span:not(.pill) { color: var(--text-3); font-size: 12px; margin-top: 4px; display: block; }
 .kpi .ksub.foot { margin-top: auto; padding-top: 10px; }
 .kpi .pill { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 8px; font-family: var(--mono); }
-.pill.up { background: var(--red-soft); color: #ff8589; }
+.pill.up { background: var(--red-soft); color: var(--red-t); }
 .pill.down { background: var(--green-soft); color: var(--green-2); }
 .pill.flat { background: var(--card-2); color: var(--text-2); }
 .kpi .spark { display: block; width: calc(100% + 32px); height: 76px; margin: auto -16px -18px; padding-top: 12px; }
@@ -185,7 +235,7 @@ a.sub:hover { text-decoration: underline; }
 .kpi .meter.mix #kEntriesSub { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .kpi .meter .lg.top { margin: 0 0 6px; font-size: 11px; color: var(--text-2); }
 .kpi .meter.empty .track, .kpi .meter.empty .fill { background: var(--card-2); }
-.kpi .meter.empty .track::before, .kpi .meter.empty .track::after { background: #3a3a44; }
+.kpi .meter.empty .track::before, .kpi .meter.empty .track::after { background: var(--dot-off); }
 
 /* shop-owner layout: hero row, tappable cards, bilingual labels */
 .hero { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
@@ -199,9 +249,9 @@ a.sub:hover { text-decoration: underline; }
 .kpi b.big { font-size: 34px; }
 .kpi b.good { color: var(--green-2); }
 .kpi > span:not(.pill):not(.ksub), .kpi .ksub { font-size: 13px; color: var(--text-2); }
-.go { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line-2); background: rgba(255,255,255,.05); border-radius: 10px; padding: 6px 11px; font-size: 12.5px; font-weight: 600; color: var(--text); }
-.go:hover { background: rgba(255,255,255,.12); }
-.kpi.bad .go { border-color: rgba(229,72,77,.45); color: #ff9a9e; }
+.go { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line-2); background: rgba(var(--ink), .05); border-radius: 10px; padding: 6px 11px; font-size: 12.5px; font-weight: 600; color: var(--text); }
+.go:hover { background: rgba(var(--ink), .12); }
+.kpi.bad .go { border-color: rgba(229,72,77,.45); color: var(--red-t); }
 h2 .en, dt .en { font-size: 12px; color: var(--text-3); font-weight: 500; margin-left: 6px; letter-spacing: 0; }
 .nav a span small { font-size: 11px; color: var(--text-3); font-weight: 500; margin-left: 4px; }
 .due-n { color: var(--text-2); font-size: 13px; }
@@ -237,7 +287,7 @@ h2 .en, dt .en { font-size: 12px; color: var(--text-3); font-weight: 500; margin
 /* buttons: a light sweep on hover */
 .btn, .go, td .act { position: relative; overflow: hidden; }
 .btn::after, .go::after, td .act::after { content: ""; position: absolute; top: 0; bottom: 0; left: -60%; width: 50%; pointer-events: none;
-  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .18), transparent); transform: skewX(-20deg); transition: left .5s ease; }
+  background: linear-gradient(100deg, transparent, rgba(var(--ink), .18), transparent); transform: skewX(-20deg); transition: left .5s ease; }
 .btn:hover::after, .go:hover::after, td .act:hover::after { left: 120%; }
 .nav a .i { transition: transform .2s; } .nav a:hover .i { transform: translateX(2px) scale(1.08); }
 .logo .mark { animation: markglow 4s ease-in-out infinite; }
@@ -253,13 +303,13 @@ h2 .en, dt .en { font-size: 12px; color: var(--text-3); font-weight: 500; margin
 .rows .meta { color: var(--text-3); font-size: 12.5px; white-space: nowrap; font-family: var(--mono); }
 .rows .amt { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; font-family: var(--mono); }
 .av { width: 34px; height: 34px; border-radius: 50%; flex: none; display: inline-grid; place-items: center; font-size: 11.5px; font-weight: 700; color: #fff; position: relative; vertical-align: middle; }
-.av::after { content: ""; position: absolute; right: -3px; bottom: -3px; width: 13px; height: 13px; border-radius: 50%; border: 2px solid #121216; background: var(--text-3); }
+.av::after { content: ""; position: absolute; right: -3px; bottom: -3px; width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--solid); background: var(--text-3); }
 .av.s-late::after { background: var(--red); }
 .av.s-today::after { background: var(--amber); }
 .av.s-clear::after { background: var(--green-2); }
 .av.s-pend::after { background: var(--violet-2); }
 .tag { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: var(--violet-soft); color: var(--violet-2); white-space: nowrap; font-family: var(--mono); }
-.tag.late { background: var(--red-soft); color: #ff8589; }
+.tag.late { background: var(--red-soft); color: var(--red-t); }
 .tag.today { background: var(--amber-soft); color: var(--amber); }
 .tag.clear { background: var(--green-soft); color: var(--green-2); }
 .tag.grey { background: var(--card-2); color: var(--text-2); }
@@ -274,16 +324,16 @@ h2 .en, dt .en { font-size: 12px; color: var(--text-3); font-weight: 500; margin
 
 /* tables */
 .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
-.toolbar input[type="search"] { flex: 0 1 320px; font-size: 14.5px; margin-left: auto; min-width: 0; border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px 8px 36px; background: rgba(255,255,255,.04) url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%238d8d99%27 stroke-width=%272%27 stroke-linecap=%27round%27%3E%3Ccircle cx=%2711%27 cy=%2711%27 r=%276.5%27/%3E%3Cpath d=%27m20 20-4-4%27/%3E%3C/svg%3E") 12px 50% / 15px no-repeat; }
+.toolbar input[type="search"] { flex: 0 1 320px; font-size: 14.5px; margin-left: auto; min-width: 0; border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px 8px 36px; background: rgba(var(--ink), .04) url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%238d8d99%27 stroke-width=%272%27 stroke-linecap=%27round%27%3E%3Ccircle cx=%2711%27 cy=%2711%27 r=%276.5%27/%3E%3Cpath d=%27m20 20-4-4%27/%3E%3C/svg%3E") 12px 50% / 15px no-repeat; }
 .toolbar input[type="search"]:focus, textarea:focus, .catrow input:focus { outline: 2px solid var(--violet-soft); border-color: var(--violet); }
 .seg { display: inline-flex; gap: 6px; flex-wrap: wrap; }
-.seg button { border: 1px solid var(--line); background: rgba(255,255,255,.03); padding: 9px 18px; font-size: 14px; color: var(--text-2); border-radius: 12px; font-weight: 500; transition: background .15s, color .15s; }
+.seg button { border: 1px solid var(--line); background: rgba(var(--ink), .03); padding: 9px 18px; font-size: 14px; color: var(--text-2); border-radius: 12px; font-weight: 500; transition: background .15s, color .15s; }
 .seg button:hover { color: var(--text); }
-.seg button[aria-pressed="true"] { background: linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,.07)); border-color: var(--line-2); color: var(--text); box-shadow: inset 0 1px 0 rgba(255,255,255,.1); }
+.seg button[aria-pressed="true"] { background: linear-gradient(180deg, rgba(var(--ink), .14), rgba(var(--ink), .07)); border-color: var(--line-2); color: var(--text); box-shadow: inset 0 1px 0 rgba(var(--ink), .1); }
 .twrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--line); border-radius: 16px; }
 table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
 th, td { padding: 13px 13px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: middle; }
-th { background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.035)); color: var(--text-3); font-weight: 500; font-size: 11.5px; position: sticky; top: 0; font-family: var(--mono); text-transform: uppercase; letter-spacing: .05em; }
+th { background: linear-gradient(180deg, rgba(var(--ink), .07), rgba(var(--ink), .035)); color: var(--text-3); font-weight: 500; font-size: 11.5px; position: sticky; top: 0; font-family: var(--mono); text-transform: uppercase; letter-spacing: .05em; }
 th[data-sort] { cursor: pointer; user-select: none; }
 th[data-sort]:hover { color: var(--text); }
 th .arr { color: var(--violet-2); margin-left: 3px; }
@@ -295,7 +345,7 @@ td.items { white-space: normal; min-width: 150px; max-width: 240px; color: var(-
 td .nm { font-weight: 600; font-family: var(--sans); font-size: 14px; }
 td .who { display: flex; align-items: center; gap: 11px; }
 td .sm { display: block; color: var(--text-3); font-size: 11.5px; }
-td .act { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line-2); border-radius: 10px; background: rgba(255,255,255,.03); padding: 5px 12px; font-size: 12px; font-family: var(--sans); color: var(--text); }
+td .act { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line-2); border-radius: 10px; background: rgba(var(--ink), .03); padding: 5px 12px; font-size: 12px; font-family: var(--sans); color: var(--text); }
 td .act:hover { background: var(--hover); }
 tr.removed td { color: var(--text-3); }
 .msgs b { font-variant-numeric: tabular-nums; }
@@ -306,7 +356,7 @@ tr.removed td { color: var(--text-3); }
 .calhead b { min-width: 130px; text-align: center; }
 .cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
 .cal .dow { font-size: 11px; color: var(--text-3); text-align: center; padding-bottom: 2px; font-family: var(--mono); text-transform: uppercase; letter-spacing: .05em; }
-.cal button { border: 1px solid var(--line); background: rgba(255,255,255,.02); border-radius: 12px; min-height: 66px; padding: 7px; text-align: left; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cal button { border: 1px solid var(--line); background: rgba(var(--ink), .02); border-radius: 12px; min-height: 66px; padding: 7px; text-align: left; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .cal button:hover:not(:disabled) { border-color: var(--line-2); }
 .cal button:disabled { background: transparent; border-color: transparent; cursor: default; }
 .cal .d { font-size: 12px; color: var(--text-2); font-family: var(--mono); }
@@ -314,15 +364,15 @@ tr.removed td { color: var(--text-3); }
 .cal .n { font-size: 11px; color: var(--text-3); }
 .cal button.has { background: var(--violet-soft); border-color: rgba(139,92,246,.35); }
 .cal button.late { background: var(--red-soft); border-color: rgba(229,72,77,.4); }
-.cal button.late .a { color: #ff8589; }
+.cal button.late .a { color: var(--red-t); }
 .cal button.today { outline: 2px solid var(--violet); outline-offset: -1px; }
-.cal button.sel { box-shadow: 0 0 0 2px #fff inset; }
+.cal button.sel { box-shadow: 0 0 0 2px var(--text) inset; }
 .daylist { margin-top: 14px; }
 
 /* supplier */
 .sgroup + .sgroup { margin-top: 16px; }
 .scards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
-.scard { text-align: left; background: rgba(255,255,255,.03); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.scard { text-align: left; background: rgba(var(--ink), .03); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .scard:hover { border-color: rgba(139,92,246,.5); background: rgba(139,92,246,.06); }
 .scard .top2 { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
 .scard .nm { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -332,8 +382,8 @@ tr.removed td { color: var(--text-3); }
 .scard .st { font-size: 12px; color: var(--text-3); }
 
 /* side panel (khata / supplier detail) */
-.overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, .6); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); z-index: 20; display: flex; justify-content: flex-end; }
-.panel { background: linear-gradient(180deg, #17151f, #111115 30%); border-left: 1px solid var(--line-2); width: min(660px, 100%); height: 100%; overflow-y: auto; padding: 22px 24px 40px; box-shadow: -20px 0 60px rgba(0,0,0,.6); }
+.overlay { position: fixed; inset: 0; background: var(--overlay); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); z-index: 20; display: flex; justify-content: flex-end; }
+.panel { background: linear-gradient(180deg, var(--panel-1), var(--panel-2) 30%); border-left: 1px solid var(--line-2); width: min(660px, 100%); height: 100%; overflow-y: auto; padding: 22px 24px 40px; box-shadow: -20px 0 60px rgba(0,0,0,.6); }
 .panel .phead { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 18px; }
 .panel .phead h2 { font-size: 24px; font-weight: 750; letter-spacing: -.02em; }
 .panel .phead .sub { color: var(--text-2); font-size: 13.5px; margin-top: 4px; font-family: var(--mono); }
@@ -341,28 +391,28 @@ tr.removed td { color: var(--text-3); }
 .panel .x:hover { background: var(--hover); }
 .panel section { margin-top: 22px; }
 .pk { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.pk div { border: 1px solid var(--line); background: rgba(255,255,255,.03); border-radius: 14px; padding: 11px 13px; min-width: 0; }
+.pk div { border: 1px solid var(--line); background: rgba(var(--ink), .03); border-radius: 14px; padding: 11px 13px; min-width: 0; }
 .pk small { display: block; font-size: 11px; color: var(--text-3); font-family: var(--mono); text-transform: uppercase; letter-spacing: .05em; }
 .pk b { font-size: 18px; font-variant-numeric: tabular-nums; font-family: var(--mono); }
 .pk b.bad { color: var(--red); }
-td.cr { color: #ff8589; }
+td.cr { color: var(--red-t); }
 td.py { color: var(--green-2); }
 tr.void td { color: var(--text-3); text-decoration: line-through; }
 .ok { color: var(--green-2); font-size: 12px; }
 .catrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .catrow input { flex: 1 1 180px; min-width: 0; border: 1px solid var(--line-2); border-radius: 999px; padding: 8px 14px; }
-.msgbox { border: 1px solid var(--line); border-radius: 14px; padding: 11px 13px; margin-top: 10px; font-size: 13.5px; white-space: pre-wrap; background: rgba(255,255,255,.03); font-family: var(--mono); }
+.msgbox { border: 1px solid var(--line); border-radius: 14px; padding: 11px 13px; margin-top: 10px; font-size: 13.5px; white-space: pre-wrap; background: rgba(var(--ink), .03); font-family: var(--mono); }
 .msgbox.warn { border-color: rgba(245,177,76,.4); background: var(--amber-soft); color: var(--amber); }
-.danger { color: #ff8589; }
+.danger { color: var(--red-t); }
 
-.toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); background: #fff; color: #0a0a0c; padding: 11px 18px; border-radius: 999px; font-size: 14px; font-weight: 500; z-index: 30; max-width: calc(100% - 32px); box-shadow: 0 12px 40px rgba(0,0,0,.5), 0 0 30px rgba(139,92,246,.35); }
-input, select, textarea { background-color: rgba(0,0,0,.35); color: var(--text); }
+.toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); background: var(--inv-bg); color: var(--inv-fg); padding: 11px 18px; border-radius: 999px; font-size: 14px; font-weight: 500; z-index: 30; max-width: calc(100% - 32px); box-shadow: 0 12px 40px rgba(0,0,0,.5), 0 0 30px rgba(139,92,246,.35); }
+input, select, textarea { background-color: var(--input); color: var(--text); }
 :focus-visible { outline: 2px solid var(--violet-2); outline-offset: 2px; }
 .rows li:focus-visible, #custTable tbody tr:focus-visible { outline-offset: -2px; }
 #custTable tbody tr:focus-visible td { background: var(--hover); }
 .nav a, .iconbtn, .rows li, .scard, .cal button, td .act { transition: background .15s, border-color .15s, color .15s; }
 /* first paint before the khata arrives (server mode) */
-.app.loading .kpi b, .app.loading .kpi em, .app.loading .stat-lines dd { color: transparent !important; border-radius: 6px; background: linear-gradient(90deg, rgba(255,255,255,.05), rgba(255,255,255,.12), rgba(255,255,255,.05)) 0 0 / 200% 100%; animation: shimmer 1.2s linear infinite; }
+.app.loading .kpi b, .app.loading .kpi em, .app.loading .stat-lines dd { color: transparent !important; border-radius: 6px; background: linear-gradient(90deg, rgba(var(--ink), .05), rgba(var(--ink), .12), rgba(var(--ink), .05)) 0 0 / 200% 100%; animation: shimmer 1.2s linear infinite; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
 input::placeholder, textarea::placeholder { color: var(--text-3); }
@@ -384,7 +434,7 @@ input::placeholder, textarea::placeholder { color: var(--text-3); }
   #custTable td.c-bal { grid-column: 2; grid-row: 1; font-size: 16px; }
   #custTable td.c-st { grid-column: 1; grid-row: 2; padding-left: 45px; }
   #custTable td.c-due { grid-column: 2; grid-row: 2; text-align: right; color: var(--text-3); font-size: 12px; }
-  #custTable td.c-due::before { content: "Kab: "; }
+  #custTable td.c-due::before { content: "Due: "; }
   #custTable td.empty { grid-column: 1 / -1; }
   .toolbar input[type="search"] { flex: 1 1 100%; margin-left: 0; }
   .sm-only { display: block; flex: 1 1 100%; }
@@ -393,7 +443,7 @@ input::placeholder, textarea::placeholder { color: var(--text-3); }
 }
 @media (max-width: 900px) {
   .app, .app.collapsed { margin: 0; border-radius: 0; border: 0; grid-template-columns: minmax(0, 1fr); min-height: 100vh; }
-  .side { border-right: 0; border-bottom: 1px solid var(--line); padding: 14px 16px; gap: 12px; position: sticky; top: 0; z-index: 5; background: rgba(14,14,18,.92); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  .side { border-right: 0; border-bottom: 1px solid var(--line); padding: 14px 16px; gap: 12px; position: sticky; top: 0; z-index: 5; background: var(--side-solid); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
   #sideToggle, .welcome p, .nav .lbl, .nav a span small { display: none; }
   .welcome h2 { font-size: 18px; }
   .welcome h2 br, .welcome .hi { display: none; }
@@ -440,6 +490,9 @@ input::placeholder, textarea::placeholder { color: var(--text-3); }
   .panel td.items { min-width: 0; max-width: 110px; }
 }
 </style>
+<script>
+try { var t = localStorage.getItem('udhaar-theme'); if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; document.documentElement.dataset.theme = t; } catch (e) { document.documentElement.dataset.theme = 'dark'; }
+</script>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
@@ -466,15 +519,15 @@ input::placeholder, textarea::placeholder { color: var(--text-3); }
   <aside class="side">
     <div class="head-row">
       <div class="logo"><span class="mark">U</span><h1>Udhaar Agent</h1><button class="iconbtn" id="sideToggle" type="button" aria-label="Collapse sidebar"><svg class="i"><use href="#i-chev"/></svg></button></div>
-      <div class="welcome hide-c"><h2><span class="hi">Namaste,</span><span id="shopName"></span></h2><p>Aaj: <span id="sideDay">…</span></p></div>
+      <div class="welcome hide-c"><h2><span class="hi">Welcome,</span><span id="shopName"></span></h2><p>Today: <span id="sideDay">…</span></p></div>
     </div>
     <nav class="nav" id="tabs" aria-label="Sections">
-      <div class="grp"><div class="lbl">Dukaan</div>
+      <div class="grp"><div class="lbl">Shop</div>
         <a href="#home" data-go="home" title="Home"><svg class="i"><use href="#i-home"/></svg><span>Home</span></a>
       </div>
-      <div class="grp"><div class="lbl">Khata</div>
-        <a href="#grahak" data-go="grahak" title="Grahak"><svg class="i"><use href="#i-users"/></svg><span>Grahak <small>Customers</small></span><em class="cnt" id="navCust"></em></a>
-        <a href="#supplier" data-go="supplier" title="Supplier"><svg class="i"><use href="#i-truck"/></svg><span>Supplier <small>Wholesalers</small></span><em class="cnt" id="navSup"></em></a>
+      <div class="grp"><div class="lbl">Accounts</div>
+        <a href="#grahak" data-go="grahak" title="Customers"><svg class="i"><use href="#i-users"/></svg><span>Customers</span><em class="cnt" id="navCust"></em></a>
+        <a href="#supplier" data-go="supplier" title="Suppliers"><svg class="i"><use href="#i-truck"/></svg><span>Suppliers</span><em class="cnt" id="navSup"></em></a>
       </div>
     </nav>
     <div class="shopbox hide-c"><small>Shop</small><div class="shops" id="shops"></div></div>
@@ -482,9 +535,10 @@ input::placeholder, textarea::placeholder { color: var(--text-3); }
 
   <div class="mainc">
     <div class="topbar">
-      <div class="crumb"><a class="iconbtn" href="#home" aria-label="Home"><svg class="i"><use href="#i-home"/></svg></a><span>Dukaan</span><span>/</span><b id="crumb">Home</b></div>
+      <div class="crumb"><a class="iconbtn" href="#home" aria-label="Home"><svg class="i"><use href="#i-home"/></svg></a><span>Shop</span><span>/</span><b id="crumb">Home</b></div>
       <span class="date" id="todayText">…</span>
-      <button class="btn" id="nextDay" type="button" title="Next day: morning reminders run"><svg class="i"><use href="#i-sun"/></svg>Agla din <svg class="i sm"><use href="#i-chevr"/></svg></button>
+      <button class="btn themebtn" id="themeBtn" type="button" aria-pressed="false" title="Light / dark theme"><svg class="i"><use href="#i-sun"/></svg><span class="t-light">Light</span><span class="t-dark">Dark</span></button>
+      <button class="btn" id="nextDay" type="button" title="Next day: morning reminders run"><svg class="i"><use href="#i-sun"/></svg>Next day <svg class="i sm"><use href="#i-chevr"/></svg></button>
       <details class="more">
         <summary class="iconbtn" aria-label="More actions" title="More"><svg class="i"><use href="#i-user"/></svg></summary>
         <div class="menu">
@@ -492,67 +546,67 @@ input::placeholder, textarea::placeholder { color: var(--text-3); }
         </div>
       </details>
     </div>
-    <div class="pagehead"><div><h2 id="viewTitle">Home</h2><p id="viewSub"></p></div><div class="right"><button class="btn dark" id="closeDay" type="button" title="Close day: send the evening summary and cash confirmations now"><svg class="i"><use href="#i-moon"/></svg>Din band karo</button></div></div>
+    <div class="pagehead"><div><h2 id="viewTitle">Home</h2><p id="viewSub"></p></div><div class="right"><button class="btn dark" id="closeDay" type="button" title="Close day: send the evening summary and cash confirmations now"><svg class="i"><use href="#i-moon"/></svg>Close day</button></div></div>
 
 <main>
   <!-- HOME: numbers only -->
   <div class="view" data-v="home">
     <div class="hero">
       <div class="kpi main tap" data-open="owing">
-        <div class="kh"><span class="ico"><svg class="i"><use href="#i-rupee"/></svg></span><div class="kt"><b class="kname">Grahakon se lena hai</b><small>Customers owe you</small></div><button class="go" type="button" data-open="owing">Kaun dega <svg class="i sm"><use href="#i-chevr"/></svg></button></div>
+        <div class="kh"><span class="ico"><svg class="i"><use href="#i-rupee"/></svg></span><div class="kt"><b class="kname">Customers owe you</b><small>Money to collect</small></div><button class="go" type="button" data-open="owing">See who <svg class="i sm"><use href="#i-chevr"/></svg></button></div>
         <b id="kOut" class="big">₹0</b><span class="ksub" id="kOutSub"></span><span class="pill flat" id="kOutTrend" hidden></span>
         <svg class="spark" id="kOutSpark" viewBox="0 0 300 64" preserveAspectRatio="none" aria-hidden="true"></svg>
       </div>
       <div class="kpi bad tap" data-open="late">
-        <div class="kh"><span class="ico"><svg class="i"><use href="#i-alert"/></svg></span><div class="kt"><b class="kname">Der ho gayi</b><small>Late payments</small></div><button class="go" type="button" data-open="late">Dekho <svg class="i sm"><use href="#i-chevr"/></svg></button></div>
+        <div class="kh"><span class="ico"><svg class="i"><use href="#i-alert"/></svg></span><div class="kt"><b class="kname">Late payments</b><small>Past the due date</small></div><button class="go" type="button" data-open="late">See list <svg class="i sm"><use href="#i-chevr"/></svg></button></div>
         <b id="kLate" class="big bad">₹0</b><span class="ksub" id="kLateSub"></span>
       </div>
       <div class="kpi good">
-        <div class="kh"><span class="ico"><svg class="i"><use href="#i-in"/></svg></span><div class="kt"><b class="kname">Aaj mila</b><small>Collected today</small></div></div>
+        <div class="kh"><span class="ico"><svg class="i"><use href="#i-in"/></svg></span><div class="kt"><b class="kname">Collected today</b><small>Cash and UPI</small></div></div>
         <b id="kToday" class="big good">₹0</b><span class="ksub" id="kTodaySub"></span>
       </div>
     </div>
 
     <div class="card" id="claimsCard" hidden>
-      <div class="card-head"><h2>Aapka jawab chahiye <span class="en">Waiting for your confirmation</span></h2><span class="sub" id="claimsSub"></span></div>
+      <div class="card-head"><h2>Needs your answer</h2><span class="sub" id="claimsSub"></span></div>
       <ul class="rows" id="claimList"></ul>
-      <p class="note">Answer these on WhatsApp: reply ✅ (sahi) or ❌ (galat) to the agent's message on the shop number.</p>
+      <p class="note">Answer these on WhatsApp: reply ✅ (correct) or ❌ (wrong) to the agent's message on the shop number.</p>
     </div>
 
     <div class="kpis">
-      <div class="kpi"><div class="kh"><span class="ico"><svg class="i"><use href="#i-cal"/></svg></span><div class="kt"><b class="kname">Is hafte mila</b><small>Collected this week</small></div></div><b id="kWeek">₹0</b><span id="kWeekSub"></span></div>
-      <a class="kpi tap" href="#supplier"><div class="kh"><span class="ico"><svg class="i"><use href="#i-truck"/></svg></span><div class="kt"><b class="kname">Supplier ko dena</b><small>You owe suppliers</small></div></div><b id="kSup">₹0</b><span id="kSupSub"></span></a>
-      <div class="kpi tap" data-open="recent"><div class="kh"><span class="ico"><svg class="i"><use href="#i-list"/></svg></span><div class="kt"><b class="kname">Aaj ki entries</b><small>Today's entries</small></div></div><b id="kEntries">0</b><span id="kEntriesSub"></span></div>
-      <div class="kpi"><div class="kh"><span class="ico"><svg class="i"><use href="#i-pct"/></svg></span><div class="kt"><b class="kname">Paisa wapas aaya</b><small>Collection rate · 30 days</small></div></div><b id="kRate">—</b><span id="kRateSub"></span>
-        <div class="meter" id="kRateMeter" hidden><div class="track"><div class="fill" id="kRateFill"></div></div><div class="lg"><span>mila</span><span>nahi mila</span></div></div></div>
+      <div class="kpi"><div class="kh"><span class="ico"><svg class="i"><use href="#i-cal"/></svg></span><div class="kt"><b class="kname">Collected this week</b><small>Last 7 days</small></div></div><b id="kWeek">₹0</b><span id="kWeekSub"></span></div>
+      <a class="kpi tap" href="#supplier"><div class="kh"><span class="ico"><svg class="i"><use href="#i-truck"/></svg></span><div class="kt"><b class="kname">You owe suppliers</b><small>To pay</small></div></div><b id="kSup">₹0</b><span id="kSupSub"></span></a>
+      <div class="kpi tap" data-open="recent"><div class="kh"><span class="ico"><svg class="i"><use href="#i-list"/></svg></span><div class="kt"><b class="kname">Today's entries</b><small>Credit and payments</small></div></div><b id="kEntries">0</b><span id="kEntriesSub"></span></div>
+      <div class="kpi"><div class="kh"><span class="ico"><svg class="i"><use href="#i-pct"/></svg></span><div class="kt"><b class="kname">Money recovered</b><small>Last 30 days</small></div></div><b id="kRate">—</b><span id="kRateSub"></span>
+        <div class="meter" id="kRateMeter" hidden><div class="track"><div class="fill" id="kRateFill"></div></div><div class="lg"><span>paid</span><span>not paid</span></div></div></div>
     </div>
 
     <div class="grid2">
       <div class="card">
-        <div class="card-head"><h2>Sabse zyada baaki <span class="en">Top dues</span></h2><a class="right sub" href="#grahak">Sab grahak ›</a></div>
+        <div class="card-head"><h2>Biggest dues</h2><a class="right sub" href="#grahak">All customers ›</a></div>
         <ul class="rows" id="topList"></ul>
       </div>
       <div class="card">
-        <div class="card-head"><h2>Der wale grahak <span class="en">Late payers</span></h2><span class="sub right">sabse purane pehle</span></div>
+        <div class="card-head"><h2>Late customers</h2><span class="sub right">oldest first</span></div>
         <ul class="rows" id="lateList"></ul>
       </div>
     </div>
 
     <div class="grid2">
       <div class="card">
-        <div class="card-head"><h2>Paisa kab aayega <span class="en">When money is due</span></h2><span class="right due-n"><b id="kDue">0</b> grahak</span></div>
+        <div class="card-head"><h2>When money is due</h2><span class="right due-n"><b id="kDue">0</b> customers</span></div>
         <div class="dbar" id="kDistBar" aria-hidden="true"></div>
         <div class="krows" id="kDist"></div>
         <p class="note" id="kDueSub"></p>
       </div>
       <div class="card">
-        <div class="card-head"><h2>Aaj ka hisaab <span class="en">Today</span></h2><span class="sub right" id="dayAsOf"></span></div>
+        <div class="card-head"><h2>Today's summary</h2><span class="sub right" id="dayAsOf"></span></div>
         <dl class="stat-lines one" id="dayStats"></dl>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-head"><h2>Is hafte ka hisaab <span class="en">This week</span></h2><span class="sub right">pichhle 7 din aur agle 7 din</span></div>
+      <div class="card-head"><h2>This week</h2><span class="sub right">last 7 days and next 7 days</span></div>
       <dl class="stat-lines" id="weekStats"></dl>
       <p class="note" id="weekNote"></p>
     </div>
@@ -561,28 +615,28 @@ input::placeholder, textarea::placeholder { color: var(--text-3); }
   <!-- GRAHAK: all customers, calendar, khata -->
   <div class="view" data-v="grahak">
     <div class="card">
-      <div class="card-head"><h2>Grahak ka hisaab <span class="en">Customers</span></h2><span class="sub right" id="custCount"></span></div>
+      <div class="card-head"><h2>All customers</h2><span class="sub right" id="custCount"></span></div>
       <div class="toolbar">
         <div class="seg" id="custFilter" role="group" aria-label="Filter">
-          <button type="button" data-f="all" aria-pressed="true">Sab</button>
-          <button type="button" data-f="owing" aria-pressed="false">Baaki hai</button>
+          <button type="button" data-f="all" aria-pressed="true">All</button>
+          <button type="button" data-f="owing" aria-pressed="false">Owes money</button>
           <button type="button" data-f="late" aria-pressed="false">Late</button>
           <button type="button" data-f="clear" aria-pressed="false">Clear</button>
         </div>
-        <select id="custSort" class="sm-only" aria-label="Sort customers"><option value="balance:-1">Sabse zyada baaki pehle</option><option value="dueDate:1">Jinka din pehle aaye</option><option value="name:1">Naam A se Z</option><option value="lastEntry:-1">Nayi entry pehle</option><option value="messagesSent:-1">Zyada messages pehle</option></select>
-        <input type="search" id="custSearch" placeholder="Naam ya phone se dhundo" aria-label="Search customers">
+        <select id="custSort" class="sm-only" aria-label="Sort customers"><option value="balance:-1">Highest balance first</option><option value="dueDate:1">Earliest due date first</option><option value="name:1">Name A to Z</option><option value="lastEntry:-1">Latest entry first</option><option value="messagesSent:-1">Most messages first</option></select>
+        <input type="search" id="custSearch" placeholder="Search name or phone" aria-label="Search customers">
       </div>
       <div class="twrap">
         <table id="custTable">
           <thead><tr>
-            <th data-sort="name">Naam</th>
+            <th data-sort="name">Name</th>
             <th>Phone</th>
-            <th class="num" data-sort="balance" title="Balance">Baaki</th>
-            <th data-sort="lastEntry" title="Last entry">Aakhri entry</th>
-            <th data-sort="dueDate" title="Due date">Kab dena hai</th>
-            <th title="Status">Haal</th>
+            <th class="num" data-sort="balance">Balance</th>
+            <th data-sort="lastEntry">Last entry</th>
+            <th data-sort="dueDate">Due date</th>
+            <th>Status</th>
             <th class="num" data-sort="messagesSent" title="Messages the agent sent to this customer (reminders below)">Messages</th>
-            <th title="Latest order / list">Aakhri saaman</th>
+            <th>Last items</th>
             <th class="num"><span class="sr">Action</span></th>
           </tr></thead>
           <tbody id="custRows"></tbody>
@@ -592,7 +646,7 @@ input::placeholder, textarea::placeholder { color: var(--text-3); }
 
     <div class="card">
       <div class="card-head">
-        <h2>Kis din paisa aayega <span class="en">Payment calendar</span></h2>
+        <h2>Payment calendar</h2>
         <div class="calhead right"><button class="btn" type="button" id="calPrev" aria-label="Previous month">‹</button><b id="calMonth"></b><button class="btn" type="button" id="calNext" aria-label="Next month">›</button></div>
       </div>
       <div class="cal" id="cal"></div>
@@ -603,10 +657,10 @@ input::placeholder, textarea::placeholder { color: var(--text-3); }
   <!-- SUPPLIER: by what they sell -->
   <div class="view" data-v="supplier">
     <div class="kpis">
-      <div class="kpi main"><div class="kh"><span class="ico"><svg class="i"><use href="#i-rupee"/></svg></span><div class="kt"><b class="kname">Supplier ko dena</b><small>You owe suppliers</small></div></div><b id="sOwed">₹0</b><span id="sOwedSub"></span></div>
-      <div class="kpi"><div class="kh"><span class="ico"><svg class="i"><use href="#i-cal"/></svg></span><div class="kt"><b class="kname">Agla payment</b><small>Next payment</small></div></div><b id="sNext">—</b><span id="sNextSub"></span></div>
-      <div class="kpi"><div class="kh"><span class="ico"><svg class="i"><use href="#i-box"/></svg></span><div class="kt"><b class="kname">Raste me order</b><small>Orders on the way</small></div></div><b id="sOpen">0</b><span id="sOpenSub"></span></div>
-      <div class="kpi"><div class="kh"><span class="ico"><svg class="i"><use href="#i-truck"/></svg></span><div class="kt"><b class="kname">Suppliers</b><small>Kitne supplier</small></div></div><b id="sCount">0</b><span id="sCountSub"></span></div>
+      <div class="kpi main"><div class="kh"><span class="ico"><svg class="i"><use href="#i-rupee"/></svg></span><div class="kt"><b class="kname">You owe suppliers</b><small>Total to pay</small></div></div><b id="sOwed">₹0</b><span id="sOwedSub"></span></div>
+      <div class="kpi"><div class="kh"><span class="ico"><svg class="i"><use href="#i-cal"/></svg></span><div class="kt"><b class="kname">Next payment</b><small>Earliest due</small></div></div><b id="sNext">—</b><span id="sNextSub"></span></div>
+      <div class="kpi"><div class="kh"><span class="ico"><svg class="i"><use href="#i-box"/></svg></span><div class="kt"><b class="kname">Orders on the way</b><small>Not delivered yet</small></div></div><b id="sOpen">0</b><span id="sOpenSub"></span></div>
+      <div class="kpi"><div class="kh"><span class="ico"><svg class="i"><use href="#i-truck"/></svg></span><div class="kt"><b class="kname">Suppliers</b><small>Saved suppliers</small></div></div><b id="sCount">0</b><span id="sCountSub"></span></div>
     </div>
     <div id="supGroups"></div>
   </div>
@@ -8616,20 +8670,22 @@ self.UdhaarCore = module.exports;
   const rs = (n) => C.rupees(Math.round(n || 0));
   const cust = (id) => state.customers.find((c) => c.id === id);
   const fd = (d) => (d ? C.fmtDate(d) : '—');
+  // weekday names in English on the page (the agent's WhatsApp replies keep their own wording)
+  const fmtDay = (d) => { const x = new Date(d + 'T00:00:00Z'); return x.toLocaleDateString('en-IN', { weekday: 'long', timeZone: 'UTC' }) + ' (' + x.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'UTC' }) + ')'; };
   const sum = (a, f) => a.reduce((s, x) => s + f(x), 0);
   const clean = (t) => String(t || '').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '').replace(/\*/g, '').replace(/[ \t]+\n/g, '\n').trim();
   function statusTag(r) {
-    if (r.removed) return '<span class="tag grey">Hataya</span>';
+    if (r.removed) return '<span class="tag grey">Removed</span>';
     if (r.status === 'clear') return '<span class="tag clear">' + (r.balance < 0 ? 'Advance' : 'Clear') + '</span>';
-    if (r.status === 'late') return '<span class="tag late">' + r.daysLate + ' din late</span>';
-    if (r.status === 'due-today') return '<span class="tag today">Aaj dena hai</span>';
-    return '<span class="tag">Baaki</span>';
+    if (r.status === 'late') return '<span class="tag late">' + r.daysLate + (r.daysLate === 1 ? ' day' : ' days') + ' late</span>';
+    if (r.status === 'due-today') return '<span class="tag today">Due today</span>';
+    return '<span class="tag">Pending</span>';
   }
   const MSG_KIND = { reminder: 'Reminder', receipt: 'Receipt', 'entry-check': 'Entry check', statement: 'Monthly statement', dispute: 'Dispute', 'check-ok': 'Confirmed', 'check-wrong': 'Question', 'consent-ask': 'Consent ask' };
 
   // ---------- views ----------
   const VIEWS = ['home', 'grahak', 'supplier'];
-  const VIEW_HEAD = { home: ['Home', 'Aaj ka hisaab ek nazar me. Kisi bhi card pe tap karo.'], grahak: ['Grahak', 'Kisse kitna lena hai, aur kab'], supplier: ['Supplier', 'Kis supplier ko kitna dena hai'] };
+  const VIEW_HEAD = { home: ['Home', 'Your shop at a glance. Tap any card to see details.'], grahak: ['Customers', 'Who owes you money, and when'], supplier: ['Suppliers', 'What you owe each supplier'] };
   function showView(v, keepScroll) {
     if (!VIEWS.includes(v)) v = 'home';
     ui.view = v;
@@ -8645,7 +8701,7 @@ self.UdhaarCore = module.exports;
 
   // ---------- header ----------
   function renderHeader() {
-    $('todayText').textContent = $('sideDay').textContent = C.fmtDay(state.today);
+    $('todayText').textContent = $('sideDay').textContent = fmtDay(state.today);
     $('shopName').textContent = state.shop.name + (state.shop.city ? ', ' + state.shop.city : '');
     $('viewSub').textContent = state.shop.name + ' · ' + VIEW_HEAD[ui.view][1];
     $('navCust').textContent = String(state.customers.filter((c) => !c.removed).length);
@@ -8674,42 +8730,42 @@ self.UdhaarCore = module.exports;
     const dueSoon = owing.filter((r) => r.dueDate && r.dueDate > T && r.dueDate <= C.addDays(T, 7)).length;
     const supOwed = sum(d.suppliers || [], (x) => x.owed);
 
-    $('kOut').textContent = rs(d.outstanding); $('kOutSub').textContent = d.owingCount + ' grahak se lena hai';
+    $('kOut').textContent = rs(d.outstanding); $('kOutSub').textContent = d.owingCount + (d.owingCount === 1 ? ' customer owes you' : ' customers owe you');
     $('kToday').textContent = rs(td.back); $('kTodaySub').textContent = 'cash ' + rs(td.backCash) + ' · UPI ' + rs(td.backUpi);
-    $('kWeek').textContent = rs(sum(weekPay, (t) => t.amount)); $('kWeekSub').textContent = weekPay.length + ' payment, pichhle 7 din';
-    $('kLate').textContent = rs(d.overdueAmount); $('kLateSub').textContent = d.overdue.length ? d.overdue.length + ' grahak ne date nikal di' : 'koi late nahi hai';
-    $('kDue').textContent = String(owing.length); $('kDueSub').textContent = owing.length ? dueToday + ' aaj dene wale, ' + dueSoon + ' agle 7 din me.' : 'Kisi ka kuch baaki nahi.';
-    $('kSup').textContent = rs(supOwed); $('kSupSub').textContent = (d.suppliers || []).length ? (d.suppliers || []).length + ' supplier ko dena hai' : 'kuch nahi dena';
-    $('kEntries').textContent = String(todayTx.length); $('kEntriesSub').textContent = td.newCreditCount + ' udhaar, ' + td.backCount + ' payment';
+    $('kWeek').textContent = rs(sum(weekPay, (t) => t.amount)); $('kWeekSub').textContent = weekPay.length + (weekPay.length === 1 ? ' payment' : ' payments') + ' in the last 7 days';
+    $('kLate').textContent = rs(d.overdueAmount); $('kLateSub').textContent = d.overdue.length ? d.overdue.length + (d.overdue.length === 1 ? ' customer is late' : ' customers are late') : 'Nobody is late';
+    $('kDue').textContent = String(owing.length); $('kDueSub').textContent = owing.length ? dueToday + ' due today, ' + dueSoon + ' due in the next 7 days.' : 'Nobody owes you anything.';
+    $('kSup').textContent = rs(supOwed); $('kSupSub').textContent = (d.suppliers || []).length ? (d.suppliers || []).length + ((d.suppliers || []).length === 1 ? ' supplier to pay' : ' suppliers to pay') : 'Nothing to pay';
+    $('kEntries').textContent = String(todayTx.length); $('kEntriesSub').textContent = td.newCreditCount + ' credit, ' + td.backCount + (td.backCount === 1 ? ' payment' : ' payments');
     $('kRate').textContent = d.collectionRate == null ? '—' : Math.round(d.collectionRate * 100) + '%';
-    $('kRateSub').textContent = d.collectionRate == null ? '30 din me koi due date nahi' : '100 me se ' + Math.round(d.collectionRate * 100) + ' rupaye wapas, ' + Math.round(d.onTimeRate * 100) + '% time pe';
+    $('kRateSub').textContent = d.collectionRate == null ? 'No due dates in the last 30 days' : '₹' + Math.round(d.collectionRate * 100) + ' back for every ₹100 due · ' + Math.round(d.onTimeRate * 100) + '% on time';
     $('kRateMeter').hidden = d.collectionRate == null;
     if (d.collectionRate != null) $('kRateFill').style.width = Math.max(0, Math.min(100, d.collectionRate * 100)) + '%';
     renderSpark(T, d.outstanding);
     const late = owing.filter((r) => r.status === 'late').length, later = Math.max(0, owing.length - late - dueToday - dueSoon);
-    const dist = [['Late ho gaye', late, 'var(--red)'], ['Aaj dena hai', dueToday, 'var(--amber)'], ['Agle 7 din me', dueSoon, 'var(--violet-2)'], ['Baad me', later, '#6b6b76'], ['Clear ya advance', rows.length - owing.length, 'var(--green-2)']];
+    const dist = [['Late', late, 'var(--red)'], ['Due today', dueToday, 'var(--amber)'], ['Due in the next 7 days', dueSoon, 'var(--violet-2)'], ['Due later', later, '#6b6b76'], ['Paid up or advance', rows.length - owing.length, 'var(--green-2)']];
     const dTot = sum(dist, (x) => x[1]) || 1;
     $('kDistBar').innerHTML = dist.filter((x) => x[1]).map((x) => '<span style="flex:' + x[1] + ';background:' + x[2] + '"></span>').join('');
-    $('kDist').innerHTML = dist.map((x) => '<div class="kr"><span><i style="background:' + x[2] + '"></i>' + x[0] + '</span><em>' + x[1] + ' grahak <small>' + Math.round((x[1] / dTot) * 100) + '%</small></em></div>').join('');
+    $('kDist').innerHTML = dist.map((x) => '<div class="kr"><span><i style="background:' + x[2] + '"></i>' + x[0] + '</span><em>' + x[1] + ' <small>' + Math.round((x[1] / dTot) * 100) + '%</small></em></div>').join('');
 
     // former Hisaab: day and week summary
     let cr = 0, py = 0;
     for (const t of live) { if (t.type === 'credit') cr += t.amount; else py += t.amount; }
-    $('dayAsOf').textContent = C.fmtDay(T);
-    const line = (k, v, en) => '<div><dt>' + esc(k) + (en ? ' <span class="en">' + esc(en) + '</span>' : '') + '</dt><dd>' + esc(v) + '</dd></div>';
-    $('dayStats').innerHTML = line('Naya udhaar diya', rs(td.newCredit) + ' (' + td.newCreditCount + ')', 'New udhaar') + line('Wapas mila', rs(td.back) + ' (' + td.backCount + ')', 'Collected') +
-      line('Cash me', rs(td.backCash)) + line('UPI se', rs(td.backUpi)) + line('Cash confirm karna hai', rs(d.pendingCash) + (d.pendingCount ? ' (' + d.pendingCount + ')' : ''), 'Cash to confirm') +
-      line('Grahak bole galat', String(td.disputes || 0), 'Customer says wrong') + line('Ab tak udhaar diya', rs(cr), 'All-time') + line('Ab tak wapas mila', rs(py), 'All-time');
+    $('dayAsOf').textContent = fmtDay(T);
+    const line = (k, v) => '<div><dt>' + esc(k) + '</dt><dd>' + esc(v) + '</dd></div>';
+    $('dayStats').innerHTML = line('New credit given', rs(td.newCredit) + ' (' + td.newCreditCount + ')') + line('Payments received', rs(td.back) + ' (' + td.backCount + ')') +
+      line('By cash', rs(td.backCash)) + line('By UPI', rs(td.backUpi)) + line('Cash to confirm', rs(d.pendingCash) + (d.pendingCount ? ' (' + d.pendingCount + ')' : '')) +
+      line('Customer says wrong', String(td.disputes || 0)) + line('Total credit given', rs(cr)) + line('Total received', rs(py));
     const wk = d.week || {};
-    $('weekStats').innerHTML = line('Udhaar diya (7 din)', rs(sum(weekCr, (t) => t.amount)), 'Udhaar given') + line('Wapas mila (7 din)', rs(sum(weekPay, (t) => t.amount)), 'Collected') +
-      line('Grahakon se aana hai', rs(wk.incoming), 'Expected') + line('Supplier ko dena hai', rs(wk.owed), 'Owed') +
-      line('Paisa wapas aane me', d.avgDaysToRecover == null ? '—' : String(Math.round(d.avgDaysToRecover)) + ' din', 'Avg days') + line('Hataye grahakon ka baaki', rs(td.removedOwed), 'Removed');
-    $('weekNote').textContent = wk.owed ? (wk.shortfall ? 'Is hafte supplier ko dene ke liye ' + rs(wk.shortfall) + ' kam pad rahe hain.' : 'Is hafte grahakon se aane wala paisa supplier ke liye kaafi hai.') + (wk.remindFirst && wk.remindFirst.length ? ' Pehle inhe yaad dilao: ' + wk.remindFirst.map((x) => x.name).join(', ') + '.' : '') : '';
+    $('weekStats').innerHTML = line('Credit given (7 days)', rs(sum(weekCr, (t) => t.amount))) + line('Received (7 days)', rs(sum(weekPay, (t) => t.amount))) +
+      line('Expected from customers', rs(wk.incoming)) + line('To pay suppliers', rs(wk.owed)) +
+      line('Average days to get paid', d.avgDaysToRecover == null ? '—' : String(Math.round(d.avgDaysToRecover)) + ' days') + line('Removed customers still owe', rs(td.removedOwed));
+    $('weekNote').textContent = wk.owed ? (wk.shortfall ? 'This week you are ' + rs(wk.shortfall) + ' short for supplier payments.' : 'Money expected this week covers your supplier payments.') + (wk.remindFirst && wk.remindFirst.length ? ' Remind these first: ' + wk.remindFirst.map((x) => x.name).join(', ') + '.' : '') : '';
     $('weekNote').className = 'note' + (wk.shortfall ? ' warn' : '');
 
     const top = owing.slice().sort((a, b) => b.balance - a.balance).slice(0, 6);
-    $('topList').innerHTML = top.length ? top.map((r) => '<li data-c="' + r.id + '" tabindex="0">' + avatar(r) + '<span class="nm">' + esc(r.name) + '</span>' + statusTag(r) + '<span class="amt">' + rs(r.balance) + '</span></li>').join('') : '<li class="empty">Kisi ka kuch baaki nahi.</li>';
-    $('lateList').innerHTML = d.overdue.length ? d.overdue.slice(0, 6).map((o) => '<li data-c="' + o.id + '" tabindex="0">' + avatar({ name: o.name, status: 'late' }) + '<span class="nm">' + esc(o.name) + '</span><span class="meta">' + o.daysLate + ' din late' + (o.reminderLevel ? ' · yaad dilaya ' + o.reminderLevel + '/3' : '') + '</span><span class="amt">' + rs(o.amount) + '</span></li>').join('') : '<li class="empty">Koi late nahi hai.</li>';
+    $('topList').innerHTML = top.length ? top.map((r) => '<li data-c="' + r.id + '" tabindex="0">' + avatar(r) + '<span class="nm">' + esc(r.name) + '</span>' + statusTag(r) + '<span class="amt">' + rs(r.balance) + '</span></li>').join('') : '<li class="empty">Nobody owes you anything.</li>';
+    $('lateList').innerHTML = d.overdue.length ? d.overdue.slice(0, 6).map((o) => '<li data-c="' + o.id + '" tabindex="0">' + avatar({ name: o.name, status: 'late' }) + '<span class="nm">' + esc(o.name) + '</span><span class="meta">' + o.daysLate + (o.daysLate === 1 ? ' day' : ' days') + ' late' + (o.reminderLevel ? ' · reminder ' + o.reminderLevel + ' of 3' : '') + '</span><span class="amt">' + rs(o.amount) + '</span></li>').join('') : '<li class="empty">Nobody is late.</li>';
 
     // cash claims and "galat hai" waiting for the owner (these used to sit in the chat)
     const pend = (state.cashClaims || []).filter((k) => k.status === 'pending');
@@ -8717,7 +8773,7 @@ self.UdhaarCore = module.exports;
     $('claimsSub').textContent = pend.length + ' item' + (pend.length === 1 ? '' : 's');
     $('claimList').innerHTML = pend.map((k) => {
       const nm = esc((cust(k.custId) || {}).name || '?');
-      const what = k.type === 'check' ? 'says this entry is wrong: ' + esc(k.label || '') : k.type === 'credit' ? 'udhaar ' + rs(k.amount) + ' (to confirm)' : 'says paid ' + rs(k.amount) + ' cash';
+      const what = k.type === 'check' ? 'says this entry is wrong: ' + esc(k.label || '') : k.type === 'credit' ? 'credit ' + rs(k.amount) + ' (to confirm)' : 'says paid ' + rs(k.amount) + ' cash';
       return '<li class="claim"><span class="nm">' + nm + ' <span class="meta">' + what + '</span></span><span class="tag">Confirm on WhatsApp</span></li>';
     }).join('');
 
@@ -8756,7 +8812,7 @@ self.UdhaarCore = module.exports;
     const el = $('kOutTrend'), base = pts[0];
     el.hidden = false;
     el.className = 'pill ' + (diff === 0 ? 'flat' : up ? 'up' : 'down');
-    el.textContent = diff === 0 ? '2 hafte se koi badlav nahi' : (up ? '▲ 2 hafte me ' + rs(Math.abs(diff)) + ' badha' : '▼ 2 hafte me ' + rs(Math.abs(diff)) + ' ghata');
+    el.textContent = diff === 0 ? 'Same as 2 weeks ago' : (up ? '▲ ' + rs(Math.abs(diff)) + ' more than 2 weeks ago' : '▼ ' + rs(Math.abs(diff)) + ' less than 2 weeks ago');
     el.title = 'Outstanding 14 days ago: ' + rs(base);
   }
   const AV = ['#7c3aed', '#2563eb', '#0d9488', '#c2410c', '#be185d', '#4d7c0f', '#9333ea', '#0369a1'];
@@ -8781,22 +8837,22 @@ self.UdhaarCore = module.exports;
       if (x == null) x = k === 'dueDate' ? '9999' : ''; if (y == null) y = k === 'dueDate' ? '9999' : '';
       return (typeof x === 'number' ? x - y : String(x).localeCompare(String(y))) * dir || a.name.localeCompare(b.name);
     });
-    $('custCount').textContent = rows.length + ' / ' + all.length + ' grahak';
+    $('custCount').textContent = rows.length + ' of ' + all.length + ' customers';
     for (const th of document.querySelectorAll('#custTable th[data-sort]')) {
       th.querySelector('.arr') && th.querySelector('.arr').remove();
       if (th.dataset.sort === k) th.insertAdjacentHTML('beforeend', '<span class="arr">' + (dir > 0 ? '▲' : '▼') + '</span>');
     }
     $('custRows').innerHTML = rows.length ? rows.map((r) => '<tr data-c="' + r.id + '" tabindex="0" class="' + (r.removed ? 'removed' : '') + '">' +
       '<td class="c-nm"><span class="who">' + avatar(r) + '<span class="nm">' + esc(r.name) + '</span></span></td>' +
-      '<td class="c-ph">' + (r.hasPhone ? esc(r.phone) : '<span class="sm">number nahi</span>') + '</td>' +
+      '<td class="c-ph">' + (r.hasPhone ? esc(r.phone) : '<span class="sm">no number</span>') + '</td>' +
       '<td class="num c-bal"><b>' + rs(Math.max(0, r.balance)) + '</b></td>' +
-      '<td class="c-last">' + fd(r.lastEntry) + (r.lastEntryType ? '<span class="sm">' + (r.lastEntryType === 'credit' ? 'udhaar' : 'payment') + '</span>' : '') + '</td>' +
+      '<td class="c-last">' + fd(r.lastEntry) + (r.lastEntryType ? '<span class="sm">' + (r.lastEntryType === 'credit' ? 'credit' : 'payment') + '</span>' : '') + '</td>' +
       '<td class="c-due">' + (r.balance > 0 ? fd(r.dueDate) : '—') + '</td>' +
       '<td class="c-st">' + statusTag(r) + '</td>' +
       '<td class="num msgs c-msg"><b>' + r.messagesSent + '</b>' + (r.reminders ? '<span class="sm">' + r.reminders + ' reminder</span>' : '') + '</td>' +
       '<td class="items c-items">' + esc(r.lastOrder || r.lastItems || '—') + '</td>' +
-      '<td class="num c-act"><button class="act" type="button" tabindex="-1">Khata dekho <svg class="i sm"><use href="#i-chevr"/></svg></button></td></tr>').join('')
-      : '<tr><td colspan="9" class="empty">Is naam ya phone se koi grahak nahi mila.</td></tr>';
+      '<td class="num c-act"><button class="act" type="button" tabindex="-1">View <svg class="i sm"><use href="#i-chevr"/></svg></button></td></tr>').join('')
+      : '<tr><td colspan="9" class="empty">No customer matches this name or phone.</td></tr>';
   }
   $('custSort').addEventListener('change', (e) => { const v = e.target.value.split(':'); ui.sort = v[0]; ui.dir = +v[1]; renderGrahak(); });
   $('custSearch').addEventListener('input', (e) => { ui.q = e.target.value; renderGrahak(); });
@@ -8834,8 +8890,8 @@ self.UdhaarCore = module.exports;
     }
     $('cal').innerHTML = html;
     const sel = ui.calDay && ui.calDay.slice(0, 7) === m ? (cal[ui.calDay] || []) : null;
-    $('dayList').innerHTML = !ui.calDay || sel === null ? '<p class="empty">Kisi din pe tap karo, dikhega us din kaun paisa dega.</p>'
-      : '<h3>' + esc(C.fmtDay(ui.calDay)) + ' · ' + rs(sum(sel, (x) => x.amount)) + '</h3>' + (sel.length ? '<ul class="rows">' + sel.map((x) => '<li data-c="' + x.id + '" tabindex="0"><span class="nm">' + esc(x.name) + '</span>' + (x.late ? '<span class="tag late">late</span>' : '') + '<span class="amt">' + rs(x.amount) + '</span></li>').join('') + '</ul>' : '<p class="empty">Is din koi paisa dene wala nahi hai.</p>');
+    $('dayList').innerHTML = !ui.calDay || sel === null ? '<p class="empty">Tap a day to see who will pay on that day.</p>'
+      : '<h3>' + esc(fmtDay(ui.calDay)) + ' · ' + rs(sum(sel, (x) => x.amount)) + '</h3>' + (sel.length ? '<ul class="rows">' + sel.map((x) => '<li data-c="' + x.id + '" tabindex="0"><span class="nm">' + esc(x.name) + '</span>' + (x.late ? '<span class="tag late">late</span>' : '') + '<span class="amt">' + rs(x.amount) + '</span></li>').join('') + '</ul>' : '<p class="empty">Nobody is due to pay on this day.</p>');
   }
   $('calPrev').addEventListener('click', () => { ui.calMonth = shiftMonth(ui.calMonth, -1); renderCalendar(); });
   $('calNext').addEventListener('click', () => { ui.calMonth = shiftMonth(ui.calMonth, 1); renderCalendar(); });
@@ -8864,23 +8920,23 @@ self.UdhaarCore = module.exports;
     const items = (t) => t.type === 'payment' ? 'Payment' + (t.source === 'upi' ? ' (UPI)' : t.source === 'cash' ? ' (cash)' : '') : t.lines && t.lines.length ? t.lines.map((l) => esc(l.name) + (l.qty != null ? ' ' + l.qty + (l.unit || '') : '') + (l.price != null ? ' ' + rs(l.price) : '')).join(', ') : esc(t.items || 'saaman');
     $('panel').innerHTML =
       '<div class="phead"><div><h2 id="pTitle">' + esc(c.name) + '</h2><div class="sub">' + (c.phone ? esc(r.phone) : 'no WhatsApp number') + ' · ' + statusTag(r) + '</div></div><button class="x" type="button" data-close aria-label="Close">×</button></div>' +
-      '<div class="pk"><div><small>Baaki · Balance</small><b class="' + (r.status === 'late' ? 'bad' : '') + '">' + rs(Math.max(0, r.balance)) + '</b></div><div><small>Kab dena hai · Due</small><b>' + (r.balance > 0 ? fd(r.dueDate) : '—') + '</b></div>' +
-      '<div><small>Messages bheje</small><b>' + r.messagesSent + '</b></div><div><small>Yaad dilaya · Reminders</small><b>' + r.reminders + (c.reminderLevel ? ' (level ' + c.reminderLevel + '/3)' : '') + '</b></div>' +
-      '<div><small>Bharosa · Credit score</small><b>' + sc.score + '</b></div><div><small>Kul diya / mila</small><b>' + rs(cr) + ' / ' + rs(py) + '</b></div></div>' +
-      '<section><h3>Khata (' + tx.length + ' entries)</h3><div class="twrap"><table><thead><tr><th>Tarikh</th><th>Saaman</th><th class="num">Udhaar</th><th class="num">Mila</th></tr></thead><tbody>' +
+      '<div class="pk"><div><small>Balance</small><b class="' + (r.status === 'late' ? 'bad' : '') + '">' + rs(Math.max(0, r.balance)) + '</b></div><div><small>Due date</small><b>' + (r.balance > 0 ? fd(r.dueDate) : '—') + '</b></div>' +
+      '<div><small>Messages sent</small><b>' + r.messagesSent + '</b></div><div><small>Reminders</small><b>' + r.reminders + (c.reminderLevel ? ' (level ' + c.reminderLevel + '/3)' : '') + '</b></div>' +
+      '<div><small>Trust score</small><b>' + sc.score + '</b></div><div><small>Total given / paid</small><b>' + rs(cr) + ' / ' + rs(py) + '</b></div></div>' +
+      '<section><h3>History (' + tx.length + ' entries)</h3><div class="twrap"><table><thead><tr><th>Date</th><th>Items</th><th class="num">Credit</th><th class="num">Paid</th></tr></thead><tbody>' +
       (tx.length ? tx.map((t) => '<tr class="' + (t.voided ? 'void' : '') + '"><td>' + fd(t.date) + '</td><td class="items">' + items(t) +
         (t.dueDate && t.type === 'credit' ? '<span class="sm">due ' + fd(t.dueDate) + '</span>' : '') + (t.custOk && !t.voided ? '<span class="ok">customer confirmed</span>' : '') + (t.custWrong && !t.custOk ? '<span class="sm danger">customer says wrong</span>' : '') + '</td>' +
         '<td class="num cr">' + (t.type === 'credit' ? rs(t.amount) : '') + '</td><td class="num py">' + (t.type === 'payment' ? rs(t.amount) : '') + '</td></tr>').join('') : '<tr><td colspan="4" class="empty">No entries yet.</td></tr>') +
       '</tbody></table></div></section>' +
       '<section><h3>Orders and lists</h3>' + (ords.length ? '<ul class="rows">' + ords.map((o) => '<li><span class="nm">' + esc(o.lines.map((l) => l.name + (l.qty != null ? ' ' + l.qty + (l.unit || '') : '')).join(', ')) + '</span><span class="meta">' + fd(o.date) + ' · ' + esc(o.status) + '</span><span class="amt">' + rs(o.amount) + '</span></li>').join('') + '</ul>'
-        : tx.some((t) => t.type === 'credit' && (t.lines || t.items)) ? '<p class="empty">No WhatsApp orders. Item lists are in the khata above.</p>' : '<p class="empty">No orders yet.</p>') + '</section>' +
+        : tx.some((t) => t.type === 'credit' && (t.lines || t.items)) ? '<p class="empty">No WhatsApp orders. Item lists are in the history above.</p>' : '<p class="empty">No orders yet.</p>') + '</section>' +
       '<section><h3>Messages the agent sent (' + msgs.length + ')</h3>' + (msgs.length ? '<ul class="rows">' + msgs.slice(0, 12).map((m) => '<li><span class="nm">' + esc(clean(m.text).split('\n')[0]) + '</span><span class="tag grey">' + esc(MSG_KIND[m.kind] || 'Message') + '</span><span class="meta">' + fd(m.date) + '</span></li>').join('') + '</ul>' : '<p class="empty">The agent has not messaged this customer yet.</p>') + '</section>' +
-      '<section><button class="btn" type="button" id="rmCust">' + (c.removed ? 'Grahak wapas lao (Restore)' : 'Grahak hatao (Remove)') + '</button></section>';
+      '<section><button class="btn" type="button" id="rmCust">' + (c.removed ? 'Restore customer' : 'Remove customer') + '</button></section>';
   }
   $('panel').addEventListener('click', async (e) => {
     if (e.target.id === 'rmCust') {
       const c = cust(ui.panel.id);
-      if (!c.removed && !confirm('Remove ' + c.name + '? The khata is kept, reminders and messages stop.')) return;
+      if (!c.removed && !confirm('Remove ' + c.name + '? Their history is kept; reminders and messages stop.')) return;
       const r = await safeAct(c.removed ? 'restoreCustomer' : 'removeCustomer', { custId: c.id });
       if (r !== undefined) { render(); if (r && r.text) toast(clean(r.text)); }
     }
@@ -8891,17 +8947,17 @@ self.UdhaarCore = module.exports;
     const cards = C.supplierCards(state);
     const sl = C.dashboard(state, 30).suppliers || [];
     const open = (state.wsOrders || []).filter((o) => (o.status === 'sent' || o.status === 'unsent') && !o.supplyId);
-    $('sOwed').textContent = rs(sum(sl, (x) => x.owed)); $('sOwedSub').textContent = sl.length + ' supplier ko dena baaki';
+    $('sOwed').textContent = rs(sum(sl, (x) => x.owed)); $('sOwedSub').textContent = sl.length + (sl.length === 1 ? ' supplier to pay' : ' suppliers to pay');
     const nx = sl[0];
-    $('sNext').textContent = nx ? fd(nx.nextDue) : '—'; $('sNextSub').textContent = nx ? nx.name + ' · ' + rs(nx.owed) + (nx.nextDue < state.today ? ' (late)' : '') : 'kuch nahi dena';
-    $('sOpen').textContent = String(open.length); $('sOpenSub').textContent = open.filter((o) => o.status === 'unsent').length + ' WhatsApp pe nahi gaye';
-    $('sCount').textContent = String(cards.length); $('sCountSub').textContent = cards.filter((c) => c.hasPhone).length + ' ka number saved';
+    $('sNext').textContent = nx ? fd(nx.nextDue) : '—'; $('sNextSub').textContent = nx ? nx.name + ' · ' + rs(nx.owed) + (nx.nextDue < state.today ? ' (late)' : '') : 'nothing due';
+    $('sOpen').textContent = String(open.length); $('sOpenSub').textContent = open.filter((o) => o.status === 'unsent').length + ' not sent on WhatsApp';
+    $('sCount').textContent = String(cards.length); $('sCountSub').textContent = cards.filter((c) => c.hasPhone).length + ' with a number';
     const groups = {};
     for (const c of cards) (groups[c.category] = groups[c.category] || []).push(c);
     const names = Object.keys(groups).sort((a, b) => (a === 'Other') - (b === 'Other') || a.localeCompare(b));
     $('supGroups').innerHTML = names.length ? names.map((g) => '<div class="card sgroup"><div class="card-head"><h2>' + esc(g) + '</h2><span class="sub">' + groups[g].length + ' supplier' + (groups[g].length === 1 ? '' : 's') + '</span></div><div class="scards">' +
-      groups[g].map((c) => '<button type="button" class="scard" data-sup="' + esc(c.key) + '"><div class="top2"><span class="nm">' + esc(c.name) + '</span><span class="owed' + (c.owed ? '' : ' zero') + '">' + (c.owed ? rs(c.owed) : 'kuch baaki nahi') + '</span></div>' +
-        '<span class="it">' + esc(c.items.join(', ') || 'saaman likha nahi') + '</span><span class="st">' + (c.id ? (c.hasPhone ? (c.wa ? 'WhatsApp ready' : 'Number saved · unka pehla "hi" aana baaki') : 'Number nahi hai') : 'Sirf supplier khata') + '</span></button>').join('') + '</div></div>').join('')
+      groups[g].map((c) => '<button type="button" class="scard" data-sup="' + esc(c.key) + '"><div class="top2"><span class="nm">' + esc(c.name) + '</span><span class="owed' + (c.owed ? '' : ' zero') + '">' + (c.owed ? rs(c.owed) : 'nothing due') + '</span></div>' +
+        '<span class="it">' + esc(c.items.join(', ') || 'no items saved') + '</span><span class="st">' + (c.id ? (c.hasPhone ? (c.wa ? 'WhatsApp ready' : 'Number saved · waiting for their first "hi"') : 'No number yet') : 'Supplier account only') + '</span></button>').join('') + '</div></div>').join('')
       : '<div class="card empty">No suppliers yet.</div>';
   }
   $('supGroups').addEventListener('click', (e) => { const b = e.target.closest('[data-sup]'); if (b) openPanel({ type: 'sup', key: b.dataset.sup }); });
@@ -8909,7 +8965,7 @@ self.UdhaarCore = module.exports;
   function renderSupPanel(key) {
     const v = C.supplierView(state, key), card = C.supplierCards(state).find((c) => c.key === key) || {};
     const w = v.wsId ? (state.wholesalers || []).find((x) => x.id === v.wsId) : null;
-    const pre = !w ? 'This supplier is only in the supplier khata. Save their number on WhatsApp ("' + v.name + ' ka number 98xxxxxxxx") to order from them.'
+    const pre = !w ? 'This supplier is only in the supplier account. Save their number on WhatsApp ("' + v.name + ' ka number 98xxxxxxxx") to order from them.'
       : !w.phone ? v.name + ' has no number yet. Tell the agent on WhatsApp: "' + v.name + ' ka number 98xxxxxxxx".'
       : !w.wa ? v.name + ' has not messaged the shop number yet. The agent only sends after they send "hi" once; until then a confirmed order is kept as not sent.' : '';
     const hint = 'Order via WhatsApp: send "' + v.name + ' ko order: 10 kg atta, 5 pkt maggi" to the shop number. The agent shows the draft and sends it after you reply ok.';
@@ -8918,7 +8974,7 @@ self.UdhaarCore = module.exports;
       '<div class="pk"><div><small>You owe</small><b class="' + (v.nextDue && v.nextDue < state.today && v.owed ? 'bad' : '') + '">' + rs(v.owed) + '</b></div><div><small>Next due</small><b>' + fd(v.owed ? v.nextDue : null) + '</b></div><div><small>WhatsApp</small><b>' + (w ? (w.phone ? (w.wa ? 'Ready' : 'Waiting for hi') : 'No number') : '—') + '</b></div></div>' +
       '<section><p class="note" id="orderHint">' + esc(hint) + '</p>' + (pre ? '<div class="msgbox warn">' + esc(pre) + '</div>' : '') + '</section>' +
       (w ? '<section><h3>Category</h3><div class="catrow"><input id="catInput" value="' + esc(w.category || '') + '" placeholder="' + esc(C.wsCategory({ items: w.items })) + '" aria-label="Category" maxlength="40"><button class="btn" type="button" id="catSave">Save</button></div></section>' : '') +
-      '<section><h3>Bills (maal on udhaar)</h3><div class="twrap"><table><thead><tr><th>Date</th><th>Items</th><th class="num">Amount</th><th class="num">Paid</th><th>Due</th></tr></thead><tbody>' +
+      '<section><h3>Bills (goods on credit)</h3><div class="twrap"><table><thead><tr><th>Date</th><th>Items</th><th class="num">Amount</th><th class="num">Paid</th><th>Due</th></tr></thead><tbody>' +
       (v.bills.length ? v.bills.map((b) => '<tr><td>' + fd(b.date) + '</td><td class="items">' + esc(b.items || '—') + '</td><td class="num">' + rs(b.amount) + '</td><td class="num">' + rs(b.paid) + '</td><td>' + fd(b.dueDate) + '</td></tr>').join('') : '<tr><td colspan="5" class="empty">No bills.</td></tr>') + '</tbody></table></div></section>' +
       '<section><h3>Payments</h3>' + (v.payments.length ? '<ul class="rows">' + v.payments.map((p) => '<li><span class="nm">Paid</span><span class="meta">' + fd(p.date) + '</span><span class="amt">' + rs(p.amount) + '</span></li>').join('') + '</ul>' : '<p class="empty">No payments yet.</p>') + '</section>' +
       '<section><h3>Orders</h3>' + (v.orders.length ? '<ul class="rows">' + v.orders.map((o) => '<li><span class="nm">' + esc(o.items) + '</span><span class="tag ' + (o.status === 'sent' || o.status === 'delivered' ? 'clear' : o.status === 'unsent' ? 'late' : 'grey') + '">' + esc(o.status === 'unsent' ? 'not sent' : o.status) + '</span><span class="meta">' + fd(o.date) + (o.bill ? ' · ' + rs(o.bill) : '') + '</span></li>').join('') + '</ul>' : '<p class="empty">No orders yet.</p>') + '</section>';
@@ -8953,6 +9009,21 @@ self.UdhaarCore = module.exports;
     try { localStorage.setItem(KEY + '-side', c ? '1' : ''); } catch (e) {}
   });
   try { if (localStorage.getItem(KEY + '-side')) $('app').classList.add('collapsed'); } catch (e) {}
+
+  // ---------- theme: light or dark, remembered on this device ----------
+  function setTheme(t, keep) {
+    document.documentElement.dataset.theme = t;
+    $('themeBtn').setAttribute('aria-pressed', t === 'light' ? 'true' : 'false');
+    $('themeBtn').setAttribute('aria-label', t === 'light' ? 'Switch to dark theme' : 'Switch to light theme');
+    $('themeBtn').querySelector('use').setAttribute('href', t === 'light' ? '#i-moon' : '#i-sun');
+    if (keep) try { localStorage.setItem('udhaar-theme', t); } catch (e) {}
+  }
+  setTheme(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
+  $('themeBtn').addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light', true));
+  matchMedia('(prefers-color-scheme: light)').addEventListener('change', (e) => {
+    let saved = null; try { saved = localStorage.getItem('udhaar-theme'); } catch (x) {}
+    if (!saved) setTheme(e.matches ? 'light' : 'dark');
+  });
 
   // ---------- day controls ----------
   const closeMenu = () => { const d = document.querySelector('.more'); if (d) d.open = false; };
@@ -8994,8 +9065,8 @@ self.UdhaarCore = module.exports;
   // ---------- boot ----------
   showView(location.hash.slice(1), true);
   if (REMOTE) {
-    fetch('api/state', { headers: ownerHeaders() }).then((r) => r.json()).then((j) => { state = j.state; render(); if (j.locked) toast('Khata sirf dukaan wale dekh sakte hain. Owner link (?key=...) se kholiye.'); countUp(['kOut', 'kLate', 'kToday', 'kSup', 'kWeek']); })
-      .catch(() => toast('Could not load the khata from the agent server. Please reload.'));
+    fetch('api/state', { headers: ownerHeaders() }).then((r) => r.json()).then((j) => { state = j.state; render(); if (j.locked) toast('Only the shop owner can see this account. Open it with the owner link (?key=...).'); countUp(['kOut', 'kLate', 'kToday', 'kSup', 'kWeek']); })
+      .catch(() => toast('Could not load the account from the agent server. Please reload.'));
   } else { if (!load()) fresh(); render(); countUp(['kOut', 'kLate', 'kToday', 'kSup', 'kWeek']); }
 })();
 </script>
