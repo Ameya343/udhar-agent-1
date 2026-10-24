@@ -68,8 +68,9 @@ test('5. diye / dile / advance without "ne" are jama', () => {
 
 test('6. "200 kam karo" reduces after the owner confirms, never adds udhaar', () => {
   const s = shop(); const n = s.txns.length;
-  const r = say(s, 'sharma ji ka 200 kam karo');
-  assert.match(r, /200 kam karun\?/);
+  // Pappu owes ₹170 in the seed (Sharma ji owes ₹0, which is answered with "kuch baaki nahi", KAN-96)
+  const r = say(s, 'pappu ka 100 kam karo');
+  assert.match(r, /100 kam karun\?/);
   assert.strictEqual(s.txns.length, n);
   say(s, 'haan');
   assert.ok(!s.txns.slice(n).some((t) => t.type === 'credit'));

@@ -3658,7 +3658,14 @@ function factory() {
             total, loose
         };
     }
-    const prices = (state) => (state.prices = state.prices || {});
+    /** Remembered rates, keyed by the item word as typed: no inherited keys, so "constructor" is just an unknown item (KAN-95). */
+    const prices = (state) => {
+        if (!state.prices)
+            state.prices = Object.create(null);
+        else if (Object.getPrototypeOf(state.prices) !== null)
+            Object.setPrototypeOf(state.prices, null);
+        return state.prices;
+    };
     /**
      * "2 kg chawal 60 ka": the spoken number is the rate for one kilo (₹120 in all), unless the remembered rate shows it is
      * the total ("2 kg chawal 120 ka" when chawal is ₹60). The line keeps what was heard so the reply can show it.
@@ -5231,13 +5238,24 @@ function factory() {
             reply('🤔 ' + rupees(intent.amount) + ' bahut badi rakam hai. ' + cust.name + ' ka ' + rupees(intent.amount) + ' ' + (intent.intent === 'credit' ? 'udhaar' : 'jama') + ' sach mein likhoon? *haan* / *nahi*\n(Abhi kuch nahi likha.)', { kind: 'confirm-ask' });
             return out;
         }
-        if (intent.phone && (intent.intent === 'credit' || intent.intent === 'payment') && cust.phone !== intent.phone) {
-            cust.phone = intent.phone;
-            log(state, 'customer', cust.name + ' phone saved');
-            reply('📱 ' + cust.name + ' ka number bhi save kar liya.');
+        // "Sharma ji 98765 00001 500 udhaar": the number in an entry is always answered, never silently dropped (KAN-96)
+        if (intent.phone && (intent.intent === 'credit' || intent.intent === 'payment')) {
+            if (cust.phone === intent.phone)
+                reply('📱 ' + cust.name + ' ka yahi number (' + intent.phone + ') pehle se save hai.');
+            else {
+                const old = cust.phone;
+                cust.phone = intent.phone;
+                log(state, 'customer', cust.name + ' phone saved');
+                reply('📱 ' + cust.name + ' ka number ' + intent.phone + ' save kar liya' + (old ? ' (pehle xxxxxx' + old.slice(-4) + ' tha).' : '.'));
+            }
         }
         if (intent.intent === 'settle' || (intent.intent === 'payment' && intent.adjust && !intent.confirmed)) {
             const bal = balance(state, cust.id);
+            // "Sharma ji ka 300 kaat do" on a ₹0 khata: nothing to reduce, said plainly instead of "₹0 → ₹0" (KAN-96)
+            if (intent.intent === 'payment' && !(bal > 0)) {
+                reply(cust.name + ' ka kuch baaki nahi hai' + (bal < 0 ? ' (' + rupees(-bal) + ' advance jama hai)' : '') + ', isliye kuch ' + (intent.writeOff ? 'maaf' : 'kam') + ' nahi kiya. Paise mile hon toh boliye "' + cust.name + ' ne ' + rupees(intent.amount).slice(1) + ' diye".');
+                return out;
+            }
             if (intent.intent === 'settle' && !(bal > 0)) {
                 reply(cust.name + ' ka kuch baaki nahi hai' + (bal < 0 ? ' (' + rupees(-bal) + ' advance jama hai)' : '') + '. Kuch nahi likha.');
                 return out;
@@ -8535,6 +8553,10 @@ function factory() {
         }
         return { result, freshTxn: t ? t.id : null };
     }
+    // word tables are looked up with whatever the owner typed: "constructor" or "toString" must find nothing (KAN-95)
+    for (const table of [DV_VOWELS, DV_MATRAS, DV_CONS, NUMWORDS, MULT, EXTRA_NUM, VOICE_BASE, VOICE_WHOLE, VOICE_FRAC, VOICE_MULT, DV_FIX, FESTIVALS,
+        HON_SAME, UNIT_OF, UNIT_BASE, UNIT_SAY, LIST_UNIT, wsUnit, HOW_HI, ITEM_SAME, CUSTOMER_LIMITS, DEMO_SHOPS])
+        Object.setPrototypeOf(table, null);
     return {
         // pipeline
         createState, seedDemo, handleOwnerMessage, parseOwnerMessage, applyIntent, recordOwnerMessage,
