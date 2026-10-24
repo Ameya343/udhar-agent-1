@@ -32,7 +32,6 @@ Built by **team CodingNinjas** (Nagpur) for **Hackyard Build 2026**:
 14. [Run it locally](#14-run-it-locally)
 15. [Repository layout](#15-repository-layout)
 16. [Roadmap](#16-roadmap)
-17. [Honest limitations](#17-honest-limitations)
 
 ---
 
@@ -378,12 +377,3 @@ All of these are **planned, not live**:
 - **Nodus open model and speech-to-text:** section 12.
 - **Voice replies:** Hindi voice-note replies to customers (code exists behind `WA_VOICE_REPLIES`, off).
 - **Photo of the copy:** read a photo of the day's handwritten page, confirm with the owner, then chase.
-
-## 17. Honest limitations
-
-- **Baileys is unofficial.** The linked-device library is not an official WhatsApp API; WhatsApp could restrict or ban the number. The Meta Cloud API adapter exists as the safer path.
-- **Unit economics do not work yet.** One Agent37 instance costs about Rs 420 per month, while a price a kirana owner would pay is around Rs 49 per month. Multi-shop hosting and our own model are how we plan to close that gap.
-- **No payment gateway.** UPI matching reads a forwarded bank SMS; it is simulated. Cash depends on the owner's ✅.
-- **AI path not measured.** Our published accuracy numbers are for the rules path only.
-- **Vouching and credit score** are built but vouching is off by default and consent/lending is a simulation.
-- **One shop live today.** Multi-shop is built but not switched on.
