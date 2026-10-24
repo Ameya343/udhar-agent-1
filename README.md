@@ -188,6 +188,8 @@ The agent serves a web dashboard with tabs **Home** (total baaki, late customers
 | Other buttons (remove / restore a customer, supplier category) | Work | Owner key only |
 
 
+The page opens with the owner's login (mobile number + password/PIN; the first login is created once with the `ADMIN_KEY`) or, as before, with `/?key=ADMIN_KEY`. Shop profile (Menu → Shop profile) holds the shop name, owner, address and GSTIN, or PAN if not GST registered: format-checked only, shown masked.
+
 ---
 
 ## 5. Architecture
@@ -328,6 +330,8 @@ Put these in the env file on the instance (`/home/node/udhaar.env`), never in th
 | `PORT`, `SHOP`, `SHOP_ID`, `SHOP_CITY`, `DATA_DIR` | Port, shop id, shop city, folder for the JSON backup and WhatsApp session |
 | `OWNER_WHATSAPP` | The owner's WhatsApp number |
 | `ADMIN_KEY` | Owner key for the dashboard on a live shop (`/?key=...`) |
+| `TAX_ID_KEY` | Optional secret: the shop's GSTIN / PAN is stored encrypted (AES-256-GCM). Unset = stored unencrypted (still only shown masked) |
+| `SESSION_DAYS`, `OWNER_MAX_FAILS`, `OWNER_LOCK_MIN` | Owner login: session length (default 7 days), wrong tries before lock (5), lock minutes (15) |
 | `LINK_KEY` | Key for the WhatsApp linking QR page, `/link?key=...` |
 | `PUBLIC_URL` | The instance's public address (used in pay links and the join page) |
 | `UDHAAR_ENV_FILE` | The KEY=value settings file read at startup (default `/home/node/udhaar.env`); a variable already in the environment wins |

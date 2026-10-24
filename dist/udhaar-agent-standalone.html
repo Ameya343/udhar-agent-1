@@ -407,6 +407,20 @@ tr.void td { color: var(--text-3); text-decoration: line-through; }
 
 .toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); background: var(--inv-bg); color: var(--inv-fg); padding: 11px 18px; border-radius: 999px; font-size: 14px; font-weight: 500; z-index: 30; max-width: calc(100% - 32px); box-shadow: 0 12px 40px rgba(0,0,0,.5), 0 0 30px rgba(139,92,246,.35); }
 input, select, textarea { background-color: var(--input); color: var(--text); }
+/* owner login / first setup / shop profile */
+.gate { position: fixed; inset: 0; z-index: 25; background: var(--bg); display: flex; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 40px 16px; }
+.gcard { width: min(440px, 100%); background: var(--solid); border: 1px solid var(--line-2); border-radius: var(--radius); padding: 24px; box-shadow: var(--shadow-card); }
+.gcard h2 { font-size: 22px; font-weight: 750; margin-bottom: 4px; }
+.gcard > p, .fnote { color: var(--text-2); font-size: 13.5px; line-height: 1.5; margin-bottom: 14px; }
+.aform label { display: block; font-size: 13px; font-weight: 600; color: var(--text-2); margin: 12px 0 5px; }
+.aform input[type="text"], .aform input[type="tel"], .aform input[type="password"], .aform textarea { width: 100%; border: 1px solid var(--line-2); border-radius: 12px; padding: 10px 12px; font-size: 15px; }
+.aform input:focus, .aform textarea:focus { outline: 2px solid var(--violet-soft); border-color: var(--violet); }
+.aform .chk { display: flex; gap: 8px; align-items: center; font-weight: 500; color: var(--text); }
+.aform .err { color: var(--red-t); font-size: 13.5px; min-height: 18px; margin-top: 10px; }
+.aform .row2 { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+.aform h3 { font-size: 15px; margin-top: 20px; }
+.aform .mono { font-family: var(--mono); }
+.linkbtn { background: none; border: 0; color: var(--violet-2); padding: 0; font-size: 13.5px; text-decoration: underline; cursor: pointer; }
 :focus-visible { outline: 2px solid var(--violet-2); outline-offset: 2px; }
 .rows li:focus-visible, #custTable tbody tr:focus-visible { outline-offset: -2px; }
 #custTable tbody tr:focus-visible td { background: var(--hover); }
@@ -542,6 +556,9 @@ try { var t = localStorage.getItem('udhaar-theme'); if (t !== 'light' && t !== '
       <details class="more">
         <summary class="iconbtn" aria-label="More actions" title="More"><svg class="i"><use href="#i-user"/></svg></summary>
         <div class="menu">
+          <button type="button" id="profileBtn" hidden>Shop profile</button>
+          <button type="button" id="setupBtn" hidden>Create owner login</button>
+          <button type="button" id="logoutBtn" hidden>Log out</button>
           <button type="button" id="resetBtn">Reset demo</button>
         </div>
       </details>
@@ -672,6 +689,7 @@ try { var t = localStorage.getItem('udhaar-theme'); if (t !== 'light' && t !== '
 <div class="overlay" id="overlay" hidden>
   <div class="panel" id="panel" role="dialog" aria-modal="true" aria-labelledby="pTitle"></div>
 </div>
+<div class="gate" id="gate" hidden><div class="gcard" id="gateCard"></div></div>
 <div class="toast" id="toast" hidden></div>
 
 <script>
@@ -9144,6 +9162,8 @@ self.UdhaarCore = module.exports;
   addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.panel) closePanel(); });
   function renderPanel() {
     if (!ui.panel) return;
+    if (ui.panel.type === 'setup') return;
+    if (ui.panel.type === 'profile') { if (!$('panel').querySelector('#pfForm')) $('panel').innerHTML = profilePanel(); return; } // a re-render keeps what the owner is typing
     if (ui.panel.type === 'cust') renderCustPanel(ui.panel.id); else renderSupPanel(ui.panel.key);
   }
   function openCustomer(id) { openPanel({ type: 'cust', id }); }
@@ -9301,11 +9321,119 @@ self.UdhaarCore = module.exports;
     }
   }
 
+  // ---------- owner login, first setup and shop profile (server pages only) ----------
+  // The session is an HttpOnly cookie the page never reads; the old ?key= owner link still works alongside it.
+  let auth = null;
+  async function postJson(url, body) {
+    const r = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: Object.assign({ 'content-type': 'application/json' }, ownerHeaders()), body: JSON.stringify(body || {}) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
+    return j;
+  }
+  const TAX_NOTE = 'We only check the format of the number. It is not verified with the government (GST portal or Income Tax).';
+  function profileFields(p) {
+    p = p || {};
+    const gst = p.gstRegistered !== false, have = p.taxIdMasked ? ' (saved: <span class="mono">' + esc(p.taxIdMasked) + '</span>; leave empty to keep it)' : '';
+    return '<label for="pfShop">Shop name</label><input type="text" id="pfShop" maxlength="80" required value="' + esc(p.shopName || (state && state.shop ? state.shop.name : '')) + '">' +
+      '<label for="pfOwner">Owner name</label><input type="text" id="pfOwner" maxlength="80" required value="' + esc(p.ownerName || '') + '">' +
+      '<label for="pfAddr">Shop address</label><textarea id="pfAddr" rows="2" maxlength="300" required>' + esc(p.address || '') + '</textarea>' +
+      '<label class="chk"><input type="checkbox" id="pfNoGst"' + (gst ? '' : ' checked') + '> Not GST registered</label>' +
+      '<div id="pfGstBox"' + (gst ? '' : ' hidden') + '><label for="pfGstin">GSTIN (15 characters)' + (gst ? have : '') + '</label><input type="text" id="pfGstin" class="mono" maxlength="15" autocomplete="off" spellcheck="false" placeholder="22AAAAA0000A1Z5"></div>' +
+      '<div id="pfPanBox"' + (gst ? ' hidden' : '') + '><label for="pfPan">PAN card number' + (gst ? '' : have) + '</label><input type="text" id="pfPan" class="mono" maxlength="10" autocomplete="off" spellcheck="false" placeholder="ABCDE1234F"></div>' +
+      '<p class="fnote">' + TAX_NOTE + ' Only the last 4 characters are shown here.' + (auth && auth.taxIdEncryption === false ? '' : ' It is stored encrypted.') + '</p>';
+  }
+  function profileValues(root) {
+    const q = (id) => root.querySelector('#' + id), noGst = q('pfNoGst').checked;
+    return { shopName: q('pfShop').value, ownerName: q('pfOwner').value, address: q('pfAddr').value, gstRegistered: !noGst,
+      gstin: noGst ? '' : q('pfGstin').value.trim().toUpperCase(), pan: noGst ? q('pfPan').value.trim().toUpperCase() : '' };
+  }
+  document.addEventListener('change', (e) => {
+    if (e.target.id !== 'pfNoGst') return;
+    const f = e.target.closest('form'); f.querySelector('#pfGstBox').hidden = e.target.checked; f.querySelector('#pfPanBox').hidden = !e.target.checked;
+  });
+  function loginCard() {
+    return '<form class="aform" id="loginForm"><h2>Owner login</h2><p>' + esc(state && state.shop ? state.shop.name : 'Your shop') + '. Log in to see your khata.</p>' +
+      '<label for="lgPhone">Mobile number</label><input type="tel" id="lgPhone" autocomplete="username" inputmode="numeric" required placeholder="98XXXXXXXX">' +
+      '<label for="lgPw">Password or PIN</label><input type="password" id="lgPw" autocomplete="current-password" required>' +
+      '<div class="err" id="lgErr" role="alert"></div><div class="row2"><button class="btn primary" type="submit">Log in</button></div>' +
+      '<p class="fnote" style="margin-top:14px">Forgot your password? Open the shop with your owner link (the one with ?key=), then use Menu → Shop profile.</p></form>';
+  }
+  function setupCard(inPanel) {
+    let k = ''; try { k = localStorage.getItem('udhaar-admin-key') || ''; } catch (e) {}
+    return '<form class="aform" id="setupForm">' + (inPanel ? '<div class="phead"><div><h2 id="pTitle">Create owner login</h2></div><button class="x" type="button" data-close aria-label="Close">×</button></div>' : '<h2>Set up your shop</h2>') +
+      '<p class="fnote">This is done once. You need the shop\'s admin key (the secret from your setup message or owner link).</p>' +
+      (k ? '<input type="hidden" id="suKey" value="' + esc(k) + '">' : '<label for="suKey">Admin key</label><input type="password" id="suKey" autocomplete="off" required>') +
+      '<h3>Your login</h3><label for="suPhone">Mobile number</label><input type="tel" id="suPhone" autocomplete="username" inputmode="numeric" required placeholder="98XXXXXXXX">' +
+      '<label for="suPw">New password or PIN (at least 6)</label><input type="password" id="suPw" autocomplete="new-password" minlength="6" required>' +
+      '<label for="suPw2">Type it again</label><input type="password" id="suPw2" autocomplete="new-password" minlength="6" required>' +
+      '<h3>Shop registration</h3>' + profileFields(null) +
+      '<div class="err" id="suErr" role="alert"></div><div class="row2"><button class="btn primary" type="submit">Create login</button></div></form>';
+  }
+  function profilePanel() {
+    const p = auth && auth.profile;
+    return '<form class="aform" id="pfForm"><div class="phead"><div><h2 id="pTitle">Shop profile</h2><div class="sub">' + (p && p.taxIdMasked ? esc(p.taxKind) + ' ' + esc(p.taxIdMasked) + ' · format checked, not government-verified' : 'Not filled yet') + '</div></div><button class="x" type="button" data-close aria-label="Close">×</button></div>' +
+      profileFields(p) + '<div class="err" id="pfErr" role="alert"></div><div class="row2"><button class="btn primary" type="submit">Save profile</button></div>' +
+      (auth && auth.via === 'session' ? '<h3>Change password</h3><label for="cpOld">Current password</label><input type="password" id="cpOld" autocomplete="current-password">' +
+        '<label for="cpNew">New password or PIN</label><input type="password" id="cpNew" autocomplete="new-password" minlength="6"><div class="row2"><button class="btn" type="button" id="cpBtn">Change password</button></div>' : '') + '</form>';
+  }
+  function showGate(html) { $('gateCard').innerHTML = html; $('gate').hidden = !html; const f = $('gateCard').querySelector('input:not([type=hidden])'); if (f) f.focus(); }
+  function authMenu() {
+    const owner = !!(auth && auth.owner);
+    $('profileBtn').hidden = !owner; $('logoutBtn').hidden = !(auth && auth.via === 'session'); $('setupBtn').hidden = !(owner && !auth.hasOwner && auth.adminKeySet);
+  }
+  async function loadAuth() {
+    try { auth = await (await fetch('api/auth/status', { credentials: 'same-origin', headers: ownerHeaders() })).json(); } catch (e) { auth = null; }
+    authMenu();
+    if (!auth || !auth.live || auth.owner) { showGate(''); return auth; }
+    showGate(auth.hasOwner ? loginCard() : auth.adminKeySet ? setupCard(false) : '');
+    return auth;
+  }
+  function loadState() {
+    return fetch('api/state', { headers: ownerHeaders() }).then((r) => r.json()).then((j) => {
+      state = j.state;
+      if (j.live) for (const id of ['nextDay', 'closeDay', 'resetBtn']) $(id).hidden = true;
+      render();
+      if (j.locked && $('gate').hidden) toast('Only the shop owner can see this account. Please log in.');
+      countUp(['kOut', 'kLate', 'kToday', 'kSup', 'kWeek']);
+    }).catch(() => toast('Could not load the account from the agent server. Please reload.'));
+  }
+  document.addEventListener('submit', async (e) => {
+    const f = e.target; if (!['loginForm', 'setupForm', 'pfForm'].includes(f.id)) return;
+    e.preventDefault();
+    const err = f.querySelector('.err'), btn = f.querySelector('button[type=submit]'); err.textContent = ''; btn.disabled = true;
+    try {
+      if (f.id === 'loginForm') {
+        await postJson('api/auth/login', { phone: $('lgPhone').value, password: $('lgPw').value });
+        await loadAuth(); await loadState(); toast('Logged in.');
+      } else if (f.id === 'setupForm') {
+        if (f.querySelector('#suPw').value !== f.querySelector('#suPw2').value) throw new Error('The two passwords are not the same');
+        await postJson('api/auth/setup', Object.assign(profileValues(f), { adminKey: f.querySelector('#suKey').value, phone: f.querySelector('#suPhone').value, password: f.querySelector('#suPw').value }));
+        if (ui.panel) closePanel();
+        await loadAuth(); await loadState(); toast('Owner login created. Next time, log in with your mobile number and password.');
+      } else {
+        const j = await postJson('api/profile', profileValues(f));
+        auth.profile = j.profile; closePanel(); await loadState(); toast('Shop profile saved.');
+      }
+    } catch (x) { err.textContent = x.message; } finally { btn.disabled = false; }
+  });
+  document.addEventListener('click', async (e) => {
+    if (e.target.id !== 'cpBtn') return;
+    const err = $('pfErr'); err.textContent = '';
+    try { await postJson('api/auth/password', { current: $('cpOld').value, password: $('cpNew').value }); $('cpOld').value = $('cpNew').value = ''; toast('Password changed.'); }
+    catch (x) { err.textContent = x.message; }
+  });
+  $('profileBtn').addEventListener('click', () => { closeMenu(); openPanel({ type: 'profile' }); });
+  $('setupBtn').addEventListener('click', () => { closeMenu(); ui.panel = { type: 'setup' }; $('panel').innerHTML = setupCard(true); $('overlay').hidden = false; document.body.style.overflow = 'hidden'; });
+  $('logoutBtn').addEventListener('click', async () => {
+    closeMenu();
+    try { await postJson('api/auth/logout', {}); } catch (e) {}
+    state = null; location.reload();
+  });
+
   // ---------- boot ----------
   showView(location.hash.slice(1), true);
   if (REMOTE) {
-    fetch('api/state', { headers: ownerHeaders() }).then((r) => r.json()).then((j) => { state = j.state; if (j.live) for (const id of ['nextDay', 'closeDay', 'resetBtn']) $(id).hidden = true; render(); if (j.locked) toast('Only the shop owner can see this account. Open it with the owner link (?key=...).'); countUp(['kOut', 'kLate', 'kToday', 'kSup', 'kWeek']); })
-      .catch(() => toast('Could not load the account from the agent server. Please reload.'));
+    loadAuth().then((a) => { if (a && a.owner && !a.hasOwner && a.live && a.adminKeySet) toast('Tip: create your own owner login from the menu (top right).'); return loadState(); });
   } else { if (!load()) fresh(); render(); countUp(['kOut', 'kLate', 'kToday', 'kSup', 'kWeek']); }
 })();
 </script>

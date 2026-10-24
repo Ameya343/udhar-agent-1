@@ -24,8 +24,12 @@
 //                          server/wa-web.ts. An old value (twilio, meta) logs a warning and web is used.
 //   LINK_KEY               the secret for GET /link?key=..., where the shop's WhatsApp number is linked by QR
 //   ACT_LIMIT_PER_MIN      default 30: /api/act calls per minute per visitor IP (the public demo URL is open to anyone)
-//   ADMIN_KEY              on a live shop (REAL_CLOCK=1) the page shows the khata and accepts actions only with the
-//                          header x-admin-key (or ?key= on the page); calls from the instance itself always work.
+//   ADMIN_KEY              optional: on a live shop (REAL_CLOCK=1) "reset", "next day" and "close day" from the public page
+//                          need the header x-admin-key with this value; calls from the instance itself always work
+//   TAX_ID_KEY             optional secret: the shop's GSTIN / PAN is stored encrypted with it (AES-256-GCM); unset = stored
+//                          as is in the owner file / table (only ever shown masked). See server/auth.ts
+//   SESSION_DAYS, OWNER_MAX_FAILS, OWNER_LOCK_MIN   owner login: session length (7 days), wrong tries before a lock (5),
+//                          lock length in minutes (15). The first owner account needs ADMIN_KEY.
 //                          "reset", "next day" and "close day" are refused on a live shop for everyone (KAN-101, KAN-102)
 //   UDHAAR_ENV_FILE        optional KEY=value file read once at startup (default /home/node/udhaar.env).
 //                          Agent37 cannot pass env vars to an instance, so keys go in this file instead.
@@ -40,6 +44,8 @@ import { createWhatsapp } from './whatsapp';
 import { createWebTransport } from './wa-web';
 import { createBrain } from './brain';
 import { createFileStore, openStore } from './store';
+import { createAuth, createFileAuthStore, openAuthStore } from './auth';
+import type { AuthStore, Auth } from './auth';
 import type { State } from '../core/types';
 import type { Store } from './store';
 import type { Whatsapp } from './whatsapp';
@@ -55,6 +61,7 @@ export interface ServerOpts {
   now?: () => number;
   sleep?: (ms: number) => Promise<unknown>;
   store?: Store;
+  authStore?: AuthStore;
   webTransport?: (o: WebTransportOpts) => WebTransport;
   waWebLib?: unknown;
 }
@@ -68,6 +75,7 @@ export type UdhaarServer = http.Server & {
   whatsapp: Whatsapp;
   web: WebTransport | null;
   store: Store;
+  auth: Auth;
   idle: () => Promise<unknown>;
 };
 /** An error carrying the HTTP status to answer with. */
@@ -108,6 +116,9 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
   if (env.SHOP_CITY && state.shop.city !== env.SHOP_CITY) { state.shop.city = String(env.SHOP_CITY).slice(0, 60); save(); } // the AI is told where the shop is
 
   function save() { store.save(state); }
+  // owner login and the shop's GSTIN / PAN live in their own store, never in the khata the page, AI and WhatsApp see
+  const authStore: AuthStore = opts.authStore || createFileAuthStore(dataDir, shopId);
+  const auth = createAuth({ env, store: authStore, now: opts.now });
 
   // WhatsApp runs through a linked device (wa-web.ts) whenever it is set up at all: an owner number, a LINK_KEY for the
   // /link page, or a WA_PROVIDER line. Twilio and Meta are gone; an old WA_PROVIDER value is not fatal.
@@ -200,7 +211,7 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
 
   // A small per-visitor rate limit for the routes that change the khata or spend AI calls. The page itself stays open
   // (it is a public demo); this only stops one visitor from hammering the shop. Local calls (no proxy) are not limited.
-  const limits: Record<string, number[]> = { '/api/act': [+env.ACT_LIMIT_PER_MIN! || 30, 60e3] };
+  const limits: Record<string, number[]> = { '/api/act': [+env.ACT_LIMIT_PER_MIN! || 30, 60e3], '/api/auth/login': [10, 60e3], '/api/auth/setup': [5, 60e3] };
   const hits = new Map<string, number[]>();
   const local = (req: http.IncomingMessage) => !req.headers['x-forwarded-for'] && /^(::1|127\.|::ffff:127\.)/.test(req.socket.remoteAddress || '');
   const sameKey = (a: unknown, b: unknown) => { const x = Buffer.from(String(a || '')), y = Buffer.from(String(b)); return x.length === y.length && (require('crypto') as typeof import('crypto')).timingSafeEqual(x, y); };
@@ -210,7 +221,25 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
     nextDay: 'Asli dukaan mein din apne aap badalta hai (asli tareekh se). Subah ke reminder khud jaate hain.',
     closeDay: 'Asli dukaan mein shaam ka hisaab apne aap ' + (+env.EVENING_HOUR! || 21) + ' baje jaata hai.'
   });
-  const isOwner = (req: http.IncomingMessage) => local(req) || !!(env.ADMIN_KEY && sameKey(req.headers['x-admin-key'], env.ADMIN_KEY));
+  const keyOk = (req: http.IncomingMessage) => !!(env.ADMIN_KEY && sameKey(req.headers['x-admin-key'], env.ADMIN_KEY));
+  // the owner: the instance itself, the ADMIN_KEY (the old ?key= link keeps working), or a logged-in owner session
+  const ownerVia = (req: http.IncomingMessage): string | null => (local(req) ? 'local' : keyOk(req) ? 'key' : auth.sessionOwner(req.headers.cookie) ? 'session' : null);
+  const isOwner = (req: http.IncomingMessage) => !!ownerVia(req);
+  // a small JSON object body, or an error status to answer with
+  async function jsonBody(req: http.IncomingMessage): Promise<{ body?: Record<string, any>; code?: number; error?: string }> {
+    if (!/application\/json/.test(req.headers['content-type'] || '')) return { code: 415, error: 'send JSON' };
+    if (+req.headers['content-length']! > MAX_BODY) return { code: 413, error: 'body too large' };
+    let body;
+    try { body = JSON.parse(await readBody(req) || '{}'); } catch (e: any) { return { code: e.code === 413 ? 413 : 400, error: e.code === 413 ? 'body too large' : 'bad JSON' }; }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return { code: 400, error: 'send a JSON object' };
+    return { body };
+  }
+  function authRoute(req: http.IncomingMessage, res: http.ServerResponse, out: { ok: boolean; code?: number; error?: string; cookie?: string } & Record<string, unknown>) {
+    if (!out.ok) return send(res, out.code || 400, { error: out.error });
+    const { cookie, ok, ...rest } = out;
+    if (cookie) res.setHeader('set-cookie', cookie);
+    return send(res, 200, Object.assign({ ok }, rest));
+  }
   function limited(req: http.IncomingMessage, route: string) {
     // the rightmost x-forwarded-for hop is the one the hosting proxy added; the ones left of it are whatever the client sent (KAN-46)
     const hops = String(req.headers['x-forwarded-for'] || '').split(',').map((x) => x.trim()).filter(Boolean);
@@ -235,6 +264,7 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
       if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) return send(res, 200, pageHtml(), 'text/html; charset=utf-8');
       if (req.method === 'GET' && url.pathname === '/favicon.ico') { res.writeHead(204); return res.end(); }
       if (req.method === 'GET' && url.pathname === '/healthz') return send(res, 200, { ok: true, shop: shopId, llm: engine.llm, scheduler: env.REAL_CLOCK === '1', llmCalls: engine.llmCalls, llmFallbacks: engine.llmFallbacks, ai: llm.health(),
+        owner: { store: authStore.kind, account: auth.hasOwner(), taxIdEncrypted: auth.encryptionOn() },
         storage: { kind: store.kind, dualWriteJson: !!store.dualWrite, fallback: store.fallback || null, lastError: store.lastError || null },
         whatsapp: { provider: wa.provider, enabled: wa.stats.enabled, sending: wa.stats.sending, voice: wa.stats.stt, voiceProvider: wa.stats.sttProvider || null, voiceNotes: wa.stats.voiceNotes, received: wa.stats.received, sent: wa.stats.sent, failed: wa.stats.failed, lastError: wa.stats.lastError,
           web: web ? web.status() : null } });
@@ -256,6 +286,32 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
       if (req.method === 'GET' && url.pathname === '/join') {
         const html = wa.joinPage(state);
         return html ? send(res, 200, html, 'text/html; charset=utf-8') : send(res, 404, { error: 'not found' });
+      }
+      if (url.pathname.startsWith('/api/auth/') || url.pathname === '/api/profile') {
+        if (req.method === 'GET' && url.pathname === '/api/auth/status') {
+          const via = ownerVia(req), owner = via === 'session' ? auth.sessionOwner(req.headers.cookie) : null;
+          return send(res, 200, { hasOwner: auth.hasOwner(), owner: !!via, via, live, adminKeySet: !!env.ADMIN_KEY,
+            name: owner ? owner.name : null, profile: via ? auth.profile() : null, taxIdEncryption: auth.encryptionOn() });
+        }
+        if (req.method === 'GET' && url.pathname === '/api/profile') return isOwner(req) ? send(res, 200, { profile: auth.profile() }) : send(res, 403, { error: 'log in first' });
+        if (req.method !== 'POST') return send(res, 404, { error: 'not found' });
+        const j = await jsonBody(req);
+        if (!j.body) { if (j.code === 413) res.setHeader('connection', 'close'); return send(res, j.code!, { error: j.error }); }
+        const b = j.body;
+        if (url.pathname === '/api/auth/setup') return authRoute(req, res, auth.setup(b, !!env.ADMIN_KEY && (sameKey(b.adminKey, env.ADMIN_KEY) || keyOk(req))));
+        if (url.pathname === '/api/auth/login') return authRoute(req, res, auth.login(b));
+        if (url.pathname === '/api/auth/logout') { auth.logout(req.headers.cookie); res.setHeader('set-cookie', auth.clearCookie()); return send(res, 200, { ok: true }); }
+        if (url.pathname === '/api/auth/password') {
+          const o = auth.sessionOwner(req.headers.cookie);
+          return o ? authRoute(req, res, auth.changePassword(o, b)) : send(res, 403, { error: 'log in first' });
+        }
+        if (url.pathname === '/api/profile') {
+          if (!isOwner(req)) return send(res, 403, { error: 'log in first' });
+          const out = auth.saveProfile(b);
+          if (out.ok && out.profile) await serial(() => { state.shop.name = out.profile!.shopName; state.shop.owner = out.profile!.ownerName; save(); });
+          return authRoute(req, res, out);
+        }
+        return send(res, 404, { error: 'not found' });
       }
       if (req.method === 'GET' && url.pathname === '/api/state') return send(res, 200, snapshot(undefined, !live || isOwner(req)));
       if (req.method === 'POST' && url.pathname === '/api/act') {
@@ -313,8 +369,9 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
   server.whatsapp = wa;
   server.web = web;
   if (web && webOn) web.start();
-  server.on('close', () => { if (web) web.stop(); store.close().catch(() => {}); });
+  server.on('close', () => { if (web) web.stop(); store.close().catch(() => {}); authStore.close().catch(() => {}); });
   server.store = store;
+  server.auth = auth;
   server.idle = () => queue.then(() => wa.idle()).then(() => web && web.idle());
   return server;
 }
@@ -377,8 +434,9 @@ if (require.main === module) {
   (require('net') as typeof import('net')).setDefaultAutoSelectFamilyAttemptTimeout(+process.env.NET_FAMILY_ATTEMPT_MS! || 2500);
   const port = +process.env.PORT! || 8000;
   const shopId = C.DEMO_SHOPS[process.env.SHOP!] ? process.env.SHOP! : 'gupta';
-  openStore(process.env, path.resolve(process.env.DATA_DIR || path.join(ROOT, 'data')), shopId).then((store) => {
-    createServer({ store }).listen(port, '0.0.0.0', () => {
+  const dataDir = path.resolve(process.env.DATA_DIR || path.join(ROOT, 'data'));
+  Promise.all([openStore(process.env, dataDir, shopId), openAuthStore(process.env, dataDir, shopId)]).then(([store, authStore]) => {
+    createServer({ store, authStore }).listen(port, '0.0.0.0', () => {
       console.log('Udhaar Agent (' + (process.env.SHOP || 'gupta') + ') on :' + port + ', storage: ' + store.kind + ', AI chain: ' + [process.env.LLM_BASE_URL ? 'custom' : '', process.env.AGENT37_LLM_PROXY_URL ? 'router' : ''].filter(Boolean).concat('rules').join(' -> '));
     });
   }, (e) => { console.error('Storage failed to start: ' + e.message); process.exit(1); });
