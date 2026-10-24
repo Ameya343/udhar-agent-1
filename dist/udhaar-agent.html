@@ -214,28 +214,7 @@ h2 .en, dt .en { font-size: 12px; color: var(--text-3); font-weight: 500; margin
 .rows li[data-c] > .amt { grid-column: 3; grid-row: 1; font-size: 15px; }
 .rows li[data-c] > .tag, .rows li[data-c] > .meta { grid-column: 2 / 4; grid-row: 2; justify-self: start; }
 
-/* light effects: a soft light follows the cursor, cards light up where the pointer is, borders glow */
-#glow { position: fixed; left: 0; top: 0; width: 900px; height: 900px; margin: -450px 0 0 -450px; border-radius: 50%; pointer-events: none; z-index: 3; mix-blend-mode: screen;
-  background: radial-gradient(closest-side, rgba(150, 110, 255, .30), rgba(139, 92, 246, .12) 40%, rgba(139, 92, 246, .04) 65%, transparent 100%); opacity: 0; transition: opacity .4s; will-change: transform; }
-body.fx-on #glow { opacity: 1; }
-.app { position: relative; z-index: 1; }
-/* the dashboard's own background lights up around the pointer, so the light is visible behind every card */
-.app::before { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 0; opacity: 0; transition: opacity .4s;
-  background: radial-gradient(650px circle at var(--gx, 50%) var(--gy, 0px), rgba(139, 92, 246, .22), rgba(139, 92, 246, .07) 40%, transparent 70%); }
-body.fx-on .app::before { opacity: 1; }
-.app > * { position: relative; z-index: 1; }
-.kpi, .card, .scard { --mx: 50%; --my: 50%; --lit: 0; }
-.kpi::before, .card::before, .scard::before { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 0;
-  background: radial-gradient(420px circle at var(--mx) var(--my), rgba(167, 139, 250, .24), rgba(139, 92, 246, .06) 35%, transparent 60%); opacity: var(--lit); transition: opacity .3s; }
-.kpi::after, .card::after, .scard::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 0; padding: 1px;
-  background: radial-gradient(320px circle at var(--mx) var(--my), rgba(216, 204, 255, 1), rgba(167, 139, 250, .5) 30%, transparent 65%);
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; opacity: var(--lit); transition: opacity .3s; }
-.kpi > *, .card > *, .scard > * { position: relative; z-index: 1; }
-.kpi.lit, .card.lit, .scard.lit { box-shadow: 0 0 0 1px rgba(167, 139, 250, .25), 0 18px 50px rgba(109, 70, 230, .28); }
-.kpi .spark { position: relative; z-index: 1; }
 .scard { position: relative; overflow: hidden; }
-.kpi { transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)); transition: transform .25s ease, border-color .15s; transform-style: preserve-3d; }
-.kpi.tilt { transition: transform .08s linear, border-color .15s; }
 /* entrance: cards rise in one after another each time a view opens */
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 .view:not([hidden]) > *, .view:not([hidden]) > .hero > *, .view:not([hidden]) > .kpis > * { animation: rise .5s cubic-bezier(.2, .7, .2, 1) backwards; }
@@ -255,7 +234,6 @@ body.fx-on .app::before { opacity: 1; }
 .nav a .i { transition: transform .2s; } .nav a:hover .i { transform: translateX(2px) scale(1.08); }
 .logo .mark { animation: markglow 4s ease-in-out infinite; }
 @keyframes markglow { 50% { box-shadow: 0 0 28px rgba(139, 92, 246, .75); } }
-@media (prefers-reduced-motion: reduce) { .kpi { transform: none !important; } }
 
 /* simple lists */
 .rows { list-style: none; margin: 0; padding: 0; }
@@ -476,7 +454,6 @@ input::placeholder, textarea::placeholder { color: var(--text-3); }
   <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></symbol>
 </svg>
 
-<div id="glow" aria-hidden="true"></div>
 <div class="app loading" id="app">
   <aside class="side">
     <div class="head-row">
@@ -9004,31 +8981,6 @@ self.UdhaarCore = module.exports;
       };
       requestAnimationFrame(step);
     }
-  }
-
-  // ---------- light effects: soft light follows the pointer, the card under it lights up and tilts a little ----------
-  {
-    const glow = $('glow'), app = $('app');
-    let lit = null, px = 0, py = 0, raf = 0;
-    const paint = () => {
-      raf = 0;
-      glow.style.transform = 'translate(' + px + 'px,' + py + 'px)';
-      const ar = app.getBoundingClientRect();
-      app.style.setProperty('--gx', (px - ar.left) + 'px'); app.style.setProperty('--gy', (py - ar.top) + 'px');
-      const el = document.elementFromPoint(px, py), card = el && el.closest('.kpi, .card, .scard');
-      if (lit && lit !== card) { lit.style.setProperty('--lit', 0); lit.style.removeProperty('--rx'); lit.style.removeProperty('--ry'); lit.classList.remove('tilt', 'lit'); }
-      lit = card;
-      if (!card) return;
-      const r = card.getBoundingClientRect(), x = px - r.left, y = py - r.top;
-      card.style.setProperty('--mx', x + 'px'); card.style.setProperty('--my', y + 'px'); card.style.setProperty('--lit', 1); card.classList.add('lit');
-      if (card.classList.contains('kpi') && !reduce) {
-        card.classList.add('tilt');
-        card.style.setProperty('--ry', ((x / r.width - .5) * 5).toFixed(2) + 'deg');
-        card.style.setProperty('--rx', ((.5 - y / r.height) * 5).toFixed(2) + 'deg');
-      }
-    };
-    addEventListener('pointermove', (e) => { if (e.pointerType === 'touch') return; px = e.clientX; py = e.clientY; document.body.classList.add('fx-on'); if (!raf) raf = requestAnimationFrame(paint); }, { passive: true });
-    document.addEventListener('pointerleave', () => { document.body.classList.remove('fx-on'); if (lit) { lit.style.setProperty('--lit', 0); lit.style.removeProperty('--rx'); lit.style.removeProperty('--ry'); lit.classList.remove('tilt', 'lit'); lit = null; } });
   }
 
   // ---------- boot ----------
