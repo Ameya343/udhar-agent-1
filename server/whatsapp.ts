@@ -167,10 +167,10 @@ function createWhatsapp(o: WhatsappOpts) {
     if ((m.kind === 'entry-check' && !m.list) || m.kind === 'statement') t += '\n\nJawab dijiye: *Haan* ya *Galat*'; // a list already ends with "haan / galat likhein"
     if (m.kind === 'consent-ask') t += '\n\nJawab dijiye: *Haan* ya *Nahi*';
     // the hisaab and reminders say how to get the QR on WhatsApp itself: the whole baaki or any part
-    if (((m.kind === 'statement' && m.balance! > 0) || (m.kind === 'reminder' && m.amount! > 0)) && state.shop.upiId)
+    if (((m.kind === 'statement' && m.balance! > 0) || (m.kind === 'reminder' && m.amount! > 0)) && C.shopUpi(state))
       t += '\n\n💳 UPI QR chahiye? Poora baaki: *QR bhejo* likhiye. Thoda: jaise *200 ka QR bhejo*.';
     // "QR bhejo": the QR image follows this text; the link opens a page with a tap-to-pay button for the same amount
-    if (m.kind === 'pay-offer' && m.amount! > 0 && state.shop.upiId) {
+    if (m.kind === 'pay-offer' && m.amount! > 0 && C.shopUpi(state)) {
       const u = payUrl(state, m.to);
       if (u) t += '\nPhone par hi pay karna ho, yeh link dabaiye: ' + u + '?amt=' + qrAmount(m);
     }
@@ -181,9 +181,9 @@ function createWhatsapp(o: WhatsappOpts) {
   /** After a pay-offer's text: the UPI QR as an image, for exactly that amount, to scan from another phone or from the gallery. */
   function queueQr(state: State, to: string, m: Message) {
     const c = state.customers.find((x) => x.id === m.to);
-    if (!stats.sending || !c || !state.shop.upiId || !(m.amount! > 0)) return;
+    if (!stats.sending || !c || !C.shopUpi(state) || !(m.amount! > 0)) return;
     const amt = qrAmount(m);
-    const caption = '₹' + amt + ' · ' + state.shop.name + ' · ' + state.shop.upiId + '\nKisi bhi UPI app se scan kijiye. Isi phone par: UPI app → Scan → Gallery se yeh photo chuniye.';
+    const caption = '₹' + amt + ' · ' + state.shop.name + ' · ' + C.shopUpi(state) + '\nKisi bhi UPI app se scan kijiye. Isi phone par: UPI app → Scan → Gallery se yeh photo chuniye.';
     outQueue = outQueue.then(() => web!.send(to, { image: qrPng(C.upiLink(state, c, amt)), mimetype: 'image/png', caption }))
       .then((ok) => { if (ok) stats.qrSent = (stats.qrSent || 0) + 1; else stats.failed++; });
   }
@@ -401,7 +401,7 @@ function createWhatsapp(o: WhatsappOpts) {
     const cash = '<p class="note">Cash dena ho toh dukaan par de dijiye aur WhatsApp par likhiye "cash de diya". Dono barabar hain.</p>';
     const head = '<h1>' + esc(state.shop.name) + '</h1><p>' + esc(/\b(ji|bhai|bhau|didi|aunty|uncle|sahab|saheb|madam|mausi|chacha|tai|sir|kaka|kaku|mama|seth)$/i.test(c.name.trim()) ? c.name.trim() : c.name.trim() + ' ji') + ', aapka baaki</p><div class="amt">' + esc(C.rupees(bal)) + '</div>';
     if (bal <= 0) return page(state.shop.name, head + '<p class="ok">Koi baaki nahi 🎉 Dhanyavaad!</p>');
-    if (!state.shop.upiId) return page(state.shop.name, head + '<p>Dukaan ka UPI abhi set nahi hai.</p>' + cash);
+    if (!C.shopUpi(state)) return page(state.shop.name, head + '<p>Dukaan ka UPI abhi set nahi hai.</p>' + cash);
     const asked = q && (q.has('amt') || q.has('mode'));
     const raw = q && q.get('mode') !== 'full' ? q.get('amt') : null;
     // "Thoda" with the box left empty is a mistake, never a silent full-amount QR
@@ -427,7 +427,7 @@ function createWhatsapp(o: WhatsappOpts) {
       '<div class="card" style="text-align:center"><h2>' + esc(C.rupees(amt)) + ' dein' + (p.full ? ' (poora)' : '') + '</h2><p class="note">' + esc(after) + '</p>' +
       '<div class="qr">' + qrSvg(link, 'M') + '</div><p class="note">Kisi bhi UPI app se scan kijiye</p>' +
       '<a class="btn" href="' + esc(link) + '">UPI app kholiye, ' + esc(C.rupees(amt)) + '</a>' +
-      '<p class="note">UPI ID: <span class="upi">' + esc(state.shop.upiId) + '</span><br>Payment milte hi dukaandaar khata update karenge. Tab tak kuch nahi badalta.</p></div>' +
+      '<p class="note">UPI ID: <span class="upi">' + esc(C.shopUpi(state)) + '</span><br>Payment milte hi dukaandaar khata update karenge. Tab tak kuch nahi badalta.</p></div>' +
       chooser + cash);
   }
   /** Stage page: scan with any phone camera, WhatsApp opens with a greeting typed in. */

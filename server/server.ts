@@ -301,7 +301,7 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
         const b = j.body;
         // the shop's UPI ID (Shop profile): the one customers' QRs pay to. Empty turns the QR off; anything else must look like one.
         const upi = 'upiId' in b ? (String(b.upiId || '').trim() ? C.validUpi(b.upiId) : '') : null;
-        if (upi === null && 'upiId' in b) return send(res, 400, { error: 'UPI ID should look like name@bank, for example guptakirana@okaxis' });
+        if (upi === null && 'upiId' in b) return send(res, 400, { error: 'UPI ID should look like name@bank, for example yourname@okaxis (demo IDs are not allowed)' });
         const keepUpi = (out: { ok: boolean }) => upi != null && out.ok ? serial(() => { state.shop.upiId = upi; save(); }) : Promise.resolve();
         if (url.pathname === '/api/auth/setup') { const out = auth.setup(b, !!env.ADMIN_KEY && (sameKey(b.adminKey, env.ADMIN_KEY) || keyOk(req))); await keepUpi(out); return authRoute(req, res, out); }
         if (url.pathname === '/api/auth/login') return authRoute(req, res, auth.login(b));
@@ -315,7 +315,7 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
           const out = auth.saveProfile(b);
           if (out.ok && out.profile) await serial(() => { state.shop.name = out.profile!.shopName; state.shop.owner = out.profile!.ownerName; save(); });
           await keepUpi(out);
-          return authRoute(req, res, Object.assign(out, { upiId: state.shop.upiId || '' }));
+          return authRoute(req, res, Object.assign(out, { upiId: C.shopUpi(state) }));
         }
         return send(res, 404, { error: 'not found' });
       }

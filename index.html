@@ -5061,7 +5061,7 @@ function factory() {
         opts = opts || {};
         return {
             version: 1,
-            shop: Object.assign({ id: 'shop-001', name: 'Gupta Kirana Store', owner: 'Rakesh Gupta', upiId: 'guptakirana@upi', defaultDays: 7, tone: 'polite' }, opts.shop || {}),
+            shop: Object.assign({ id: 'shop-001', name: 'Gupta Kirana Store', owner: 'Rakesh Gupta', upiId: '', defaultDays: 7, tone: 'polite' }, opts.shop || {}),
             today: opts.today || iso(new Date()),
             seqs: {},
             customers: [], txns: [], messages: [], log: [], pending: null, seenUpiRefs: [], lastAction: null, cashClaims: [], eveningSentFor: null
@@ -5164,14 +5164,27 @@ function factory() {
      * A number the shop removed wrote again ("hi"): they get one short line (at most every 12 h) and the owner is
      * asked "<name> (xxxx) ne hi bheja. Khata kholun?" (once at a time; not again the day the owner said nahi).
      */
-    function removedWrote(state, c, nowMs, out) {
+    function removedWrote(state, c, text, nowMs, out) {
         const n = ownerAsks(state).length;
         if (c.rejoinDeclined !== state.today)
             askOwner(state, out, { type: 'rejoin', custId: c.id });
-        if (ownerAsks(state).length > n || !c.removedToldAt || nowMs - Date.parse(c.removedToldAt) >= 12 * 3600e3) {
-            c.removedToldAt = new Date(nowMs).toISOString();
+        const asked = ownerAsks(state).length > n;
+        // "kitna baaki hai": the old record stays after removal, so they can still read what they owe
+        if (customerIntentRules(state, c, text).intent === 'balance') {
+            const bal = Math.round(balance(state, c.id));
+            emit(state, out, c.id, (bal > 0 ? 'Aapke naam ' + rupees(bal) + ' baaki hai.' : 'Aapka koi baaki nahi hai.') + ' 🙏 Baaki baat ke liye ' + state.shop.name + ' ko bata diya hai.', { kind: 'removed-ack', balance: bal });
+        }
+        else if (asked || !c.removedToldAt || nowMs - Date.parse(c.removedToldAt) >= 12 * 3600e3) {
             emit(state, out, c.id, 'Namaste 🙏 Aapka message ' + state.shop.name + ' ko bhej diya hai. Dukaan jald jawab degi.', { kind: 'removed-ack' });
         }
+        else {
+            // never silent: a later message gets a short line too
+            emit(state, out, c.id, '🙏 Aapka message ' + state.shop.name + ' tak pahuncha diya hai.', { kind: 'removed-ack' });
+        }
+        c.removedToldAt = new Date(nowMs).toISOString();
+        // the owner sees what they wrote when the rejoin ask did not just carry it
+        if (!asked)
+            emit(state, out, 'owner', '💬 ' + c.name + ' (hataye gaye) ne likha: "' + String(text).slice(0, 300) + '"');
     }
     function restoreCustomer(state, c, reply) {
         if (!c.removed) {
@@ -5194,14 +5207,31 @@ function factory() {
         return msg;
     }
     function log(state, kind, text) { state.log.push({ date: state.today, ts: Date.now(), kind, text }); }
+    /**
+     * Demo/seed UPI IDs that were once shipped in the code. They look real and some belong to strangers (a real
+     * customer paid ₹60 to one), so they are never treated as the shop's UPI: no QR, no pay button, cash only.
+     */
+    const PLACEHOLDER_UPI = ['guptakirana@upi', 'zafarsastabazaar@upi', 'saikrupakirana@upi', 'balajidairy@upi', 'nayidukaan@upi'];
+    function isPlaceholderUpi(raw) {
+        return PLACEHOLDER_UPI.indexOf(String(raw == null ? '' : raw).trim().toLowerCase()) >= 0;
+    }
+    /** The UPI ID customers may pay: the one the owner saved, valid and not a placeholder; '' turns QR and pay button off. */
+    function shopUpi(state) {
+        const v = validUpi(state && state.shop ? state.shop.upiId : '');
+        return v && !isPlaceholderUpi(v) ? v : '';
+    }
+    /** upi://pay for the shop's UPI, or '' when the shop has none it may use (never a link to a placeholder). */
     function upiLink(state, c, amount) {
-        return 'upi://pay?pa=' + encodeURIComponent(state.shop.upiId) + '&pn=' + encodeURIComponent(state.shop.name) +
+        const pa = shopUpi(state);
+        if (!pa)
+            return '';
+        return 'upi://pay?pa=' + encodeURIComponent(pa) + '&pn=' + encodeURIComponent(state.shop.name) +
             '&am=' + Math.round(amount) + '&cu=INR&tn=' + encodeURIComponent('UDH-' + c.id);
     }
     /** "guptakirana@okaxis", "98xxxxxxxx@ybl": a UPI ID as the shop types it, cleaned; null when it cannot be one. */
     function validUpi(raw) {
         const s = String(raw == null ? '' : raw).trim().toLowerCase();
-        return /^[a-z0-9][a-z0-9._-]{1,255}@[a-z][a-z0-9]{1,63}$/.test(s) ? s : null;
+        return /^[a-z0-9][a-z0-9._-]{1,255}@[a-z][a-z0-9]{1,63}$/.test(s) && !isPlaceholderUpi(s) ? s : null;
     }
     // most banks cap one UPI payment at ₹1 lakh, so a typo like 5000000 never becomes a QR
     const UPI_MAX = 100000;
@@ -6754,7 +6784,7 @@ function factory() {
     function sendReminder(state, out, c, level, why) {
         const bal = balance(state, c.id);
         const text = reminderText(state, c, level);
-        emit(state, out, c.id, text, { kind: 'reminder', level, upi: upiLink(state, c, bal), amount: bal });
+        emit(state, out, c.id, text, { kind: 'reminder', level, upi: upiLink(state, c, bal) || undefined, amount: bal });
         c.lastReminder = state.today;
         c.reminderLevel = Math.max(c.reminderLevel || 0, level);
         const vb = c.vouch && getCust(state, c.vouch.by);
@@ -7583,6 +7613,45 @@ function factory() {
         const raw = ' ' + String(text || '').toLowerCase() + ' ', t = tokenize(text).text;
         return (PAY_NOW_RX.test(t) || /[\s\d](qr|q\.r\.?|scanner|क्यूआर|स्कैनर)[\s?.!,]/.test(raw)) && !PAID_RX.test(t);
     }
+    /**
+     * The amount in a pay-now message, read from the raw text (any phrasing, Devanagari digits too):
+     * "30 ka QR", "QR 30", "abhi 30 dunga", "₹30 bhejna hai", "sirf 30", "send QR for 30", "३० का QR".
+     * null: no pay-now intent. amount null: pay intent, no number (the full baaki). ask: a number that is not one clear
+     * amount ("30-40 ka QR", "aadha ka QR"). bad: zero or negative.
+     */
+    const PAY_STRONG_NOW = /(^|[^a-z])(qr|q\.r\.?|scanner|scaner|kyuar|upi|gpay|paytm|phonepe|pay|payment|pement)([^a-z]|$)|क्यूआर|स्कैनर/;
+    const PAY_WEAK_NOW = /(^|[^a-z])(bhejna|bhejni|bhejne|bhejunga|bhejungi|bhejta|bhejti|bhej raha|bhej rahi|bhej deta|bhej deti|bhej du|bhej dun|bhej doon|dunga|dungi|doonga|de dunga|de dungi|de sakta|de sakti|de skta|de skti|de paunga|de paungi|dena hai|deta hu|deta hun|deti hu|deti hun|sirf|only|send|bhejo)([^a-z]|$)|भेजना|भेजूंगा|दूंगा|दूँगा|सिर्फ/;
+    const PAY_PAST_NOW = /(^|[^a-z])(paid|diya|diye|die|dia|kiya|kiye|kie|kar diya|kar diye|bhej diya|bhej diye|bheja|bheje|ho gaya|ho gya|hogaya|sent|done)([^a-z]|$)|दिया|दिए|दिये|भेजा/;
+    const PAY_FUZZY = /(^|[^a-z])(aadha|adha|half|thoda|thode|kuch|partial)([^a-z]|$)|आधा|थोड़ा|कुछ/;
+    const PAY_UNIT = /\d\s*(kg|kilo|kilos|g|gm|gram|grams|gms|ml|l|ltr|litre|liter|litres|packet|packets|pkt|pc|pcs|piece|pieces|dozen|darjan|nag|bottle|botal|box|kilogram)([^a-z]|$)/;
+    const PAY_FILLER = new Set(('meko mujhe mujhko mereko main mai me mein hum ham abhi aaj ka ki ke ko hai h hu hun hoon ji bhai bhaiya bhaiyya hi sirf only rs ok okay please plz pls toh to aapko apko tumko paise paisa pese rupaye rupay rupiya rupees ' +
+        'bhejna bhejni bhejne bhejunga bhejungi bhejta bhejti bhej raha rahi deta deti du dun doon dunga dungi doonga de sakta sakti skta skti paunga paungi dena send bhejo just ' +
+        'मुझे मैं अभी का की के है हूं हूँ जी भाई सिर्फ भेजना भेजूंगा दूंगा दूँगा रुपये पैसे').split(' '));
+    function payNowAsk(text) {
+        const raw = String(text || '').toLowerCase().replace(/[०-९]/g, (d) => String(d.charCodeAt(0) - 0x966)).replace(/(\d),(\d{3})/g, '$1$2');
+        if (PAY_PAST_NOW.test(raw) || PAY_UNIT.test(raw))
+            return null;
+        const nums = raw.match(/-?\d+(\.\d+)?/g) || [];
+        // "kal 30 dunga" is a promise, "mera 5000 rupaye udhar hai" or "sirf 30 baaki hai" a dispute: only a QR/pay word takes those
+        const other = /(^|[^a-z])(kal|parso|tak|ko|baad|tarikh|tareekh|monday|sunday|somvar|baaki|baki|udhaar|udhar|udhari|hisab|hisaab|galat|likha|chahiye|chaiye)([^a-z]|$)/.test(raw);
+        const strong = PAY_STRONG_NOW.test(raw) || (!other && /₹|(^|[^a-z])(rs|rupaye|rupees|rupay|rupiya)([^a-z]|$)/.test(raw));
+        // a weak word ("bhejna hai", "dunga", "sirf") is a pay-now only with an amount: "kal dunga" stays a promise
+        if (!strong && (other || !(PAY_WEAK_NOW.test(raw) && nums.length)))
+            return null;
+        // weak words with any other word left ("maggi 30 ka bhejo", "send 2 bread") are an order, not a payment
+        if (!strong && raw.replace(/-?\d+(\.\d+)?/g, ' ').split(/[^a-z\u0900-\u097f]+/).some((w) => w && !PAY_FILLER.has(w)))
+            return null;
+        const vals = Array.from(new Set(nums.map(Number)));
+        if (!vals.length)
+            return PAY_FUZZY.test(raw) ? { amount: null, ask: true } : { amount: null };
+        if (vals.length > 1 || PAY_FUZZY.test(raw) || /\d\s*(-|to|se)\s*\d/.test(raw))
+            return { amount: null, ask: true };
+        if (vals[0] <= 0)
+            return { amount: vals[0], bad: true };
+        if (vals[0] !== Math.round(vals[0]))
+            return { amount: null, ask: true };
+        return { amount: vals[0], weak: !strong };
+    }
     const cashClaimWords = (t) => CASH_RX.test(t) || (!UPI_WORD_RX.test(t) && HANDED_RX.test(t) && /\d/.test(t));
     const PAY_LATER = /\s(dunga|dungi|de dunga|de dungi|bhej dunga|bhejunga|bhejungi|de sakta|de sakti|de skta|denge|dene|kar dunga|kar dungi|dedunga|de deta|de denge|bhej denge)\s/;
     const GREETING_RX = /^\s*(hi+|hello|helo|hey|namaste|namaskar|ram ram|jai shri krishna|good morning|gud morning|good evening|gupta ji|seth ji|bhaiya|bhaiyya|uncle)(\s+ji)?\s*$/;
@@ -7624,7 +7693,8 @@ function factory() {
     const DISPUTE_RX = /\s(udhar|udhari|baki|hisab|khata)\s(.*\s)?(bas|bs|sirf|srf|only|hi)\s|\s(bas|bs|sirf|srf|only)\s(\d+|[a-z]+)\s(rupaye|rs|ka|ki|hai)\s|\s(galat|vrong|jyada|zyada|itna nahi|nahi liya|nahi liye|liya hi nahi)\s/;
     const REVOKE_RX = /\b(consent|ijaazat|ijazat|ijajat|permission|share|sharing|record|data|score)\s+(cancel|band|wapas|vapas|hatao|hata do|revoke|stop|mat|nahi|withdraw)|^(wapas|vapas)\s+(le lo|lelo|lo|le lijiye)\b|\b(cancel|revoke|withdraw|band karo)\s+(consent|share|sharing|permission|ijaazat|ijazat)\b/;
     // English too: "How much do I owe?" (owe is "ove" once w is read as v), "my dues"
-    const BALANCE_RX = /\s(kitna|kitana|kitne|kitni|balance|bakaya|hisab|hisaab|list|statement|khata|ove|oved|dues)\s/;
+    // typed fast on a phone: "kitns baki hsi", "kitn baaki", "kitnaa"
+    const BALANCE_RX = /\s(kitna|kitns|kitn|kitnaa|kitnna|kitana|kitne|kitni|balance|bakaya|hisab|hisaab|list|statement|khata|ove|oved|dues)\s/;
     /** Strict rule classifier for one customer message (the LLM's fallback). */
     function customerIntentRules(state, c, text) {
         const pre = customerPrefilter(text);
@@ -7788,14 +7858,19 @@ function factory() {
      * (customerIntentFromLlm); without it the strict rules decide. opts.now: the clock for the per-customer limits.
      */
     /** "QR bhejo" / "200 pay karna hai": the baaki and the shop's UPI. Nothing is written until the payment is confirmed. */
-    function offerPay(state, c, said, out) {
+    function offerPay(state, c, said, out, bad) {
+        if (bad) {
+            emit(state, out, c.id, 'QR 0 se zyada raqam ka hi banta hai 🙏 Kitne ka QR bhejun? Poora ' + rupees(Math.max(0, Math.round(balance(state, c.id)))) + ' ya kam?');
+            c.payAsk = Date.now();
+            return out;
+        }
         const want = said && said.amount > 0 ? Math.round(said.amount) : null;
         const p = payAmount(state, c.id, want, { over: true });
         if (p.error === 'none-due') {
             emit(state, out, c.id, 'Aapka koi baaki nahi hai 🙏 - ' + state.shop.name);
             return out;
         }
-        if (!state.shop.upiId) {
+        if (!shopUpi(state)) {
             emit(state, out, c.id, 'Baaki: ' + rupees(p.balance) + '. Dukaan ka UPI abhi set nahi hai 🙏 Dukaan par cash de dijiye, phir "cash de diya" likh dijiye.');
             // the owner hears once why the customer got no QR, and where to fix it
             if (allowOnce(c, 'relay', Date.now()))
@@ -7804,9 +7879,9 @@ function factory() {
         }
         const amt = p.ok ? p.amount : null;
         emit(state, out, c.id, '💳 ' + state.shop.name + '\nAapka baaki: ' + rupees(p.balance) +
-            (amt && amt < p.balance ? '\nAap ' + rupees(amt) + ' de rahe hain, baaki ' + rupees(p.balance - amt) + ' rahega.' : '') +
+            (amt && amt < p.balance ? '\n' + rupees(amt) + ' ka QR. Baaki ' + rupees(p.balance - amt) + ' baad mein.' : '') +
             (amt && amt > p.balance ? '\nAapne ' + rupees(amt) + ' likha, baaki sirf ' + rupees(p.balance) + ' hai. Neeche poore ' + rupees(p.balance) + ' ka QR hai. ' + rupees(amt) + ' hi dena ho toh link par chuniye: zyada ' + rupees(amt - p.balance) + ' advance mein jama hoga.' : '') +
-            '\n' + (amt && amt < p.balance ? rupees(amt) : 'Poore ' + rupees(p.balance)) + ' ka UPI QR neeche bhej raha hoon. UPI ID: ' + state.shop.upiId +
+            '\n' + (amt && amt < p.balance ? rupees(amt) : 'Poore ' + rupees(p.balance)) + ' ka UPI QR neeche bhej raha hoon. UPI ID: ' + shopUpi(state) +
             '\nPayment milte hi dukaandaar khata update karenge.', { kind: 'pay-offer', amount: p.balance, payAmount: want && amt ? amt : undefined });
         return out;
     }
@@ -7817,14 +7892,40 @@ function factory() {
         const nowMs = +opts.now || Date.now();
         state.messages.push({ id: nextId(state, 'M'), to: 'agent', from: custId, text, date: state.today, ts: nowMs });
         if (c.removed) {
-            removedWrote(state, c, nowMs, out);
+            removedWrote(state, c, text, nowMs, out);
             return out;
-        } // never silent: a short line, and the owner is asked
+        } // never silent: a reply every time, and the owner is told
         // "consent cancel" / "share band karo" / "wapas le lo" while a lender can see the record: the permission is taken back
         if (consentOf(state, c.id).status === 'granted' && REVOKE_RX.test(String(text).toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim()))
             return revokeConsent(state, c.id);
         const pre = customerPrefilter(text); // emoji, abuse and opt-out never depend on the LLM
         let ci = pre || (c.optedOut ? null : opts.intent) || customerIntentRules(state, c, text);
+        // a pay-now with an amount wins over any reading, the AI's "order" too ("meko 30 bhejna hai" is ₹30, never "Meko x30")
+        let pn = ['abusive', 'opt_out', 'dispute', 'correction'].indexOf(ci.intent) < 0 && !c.optedOut ? payNowAsk(text) : null;
+        // the answer to "Kitne ka QR bhejun?": a bare number, or "poora"
+        const askOpen = c.payAsk && nowMs - c.payAsk < 30 * 60 * 1000;
+        const bare = askOpen ? /^\s*(₹|rs\.?)?\s*([0-9०-९]+)\s*(rs|rupaye|₹)?\s*$/i.exec(String(text)) : null;
+        if (askOpen && (bare || /^\s*(poora|pura|full|sab|saara|sara|poore|pure)\b/i.test(String(text)))) {
+            delete c.payAsk;
+            const n = bare ? +bare[2].replace(/[०-९]/g, (d) => String(d.charCodeAt(0) - 0x966)) : null;
+            return offerPay(state, c, n == null ? null : { amount: n }, out, n != null && n <= 0);
+        }
+        // "30 bhejna hai" is ₹30, but "2 maggi bhejna" with a known item stays an order
+        if (pn && pn.weak && orderLines(state, text).some((l) => l.from === 'memory' || l.from === 'variant'))
+            pn = null;
+        if (pn && (pn.amount != null || pn.ask)) {
+            if (pn.ask) {
+                const b = Math.round(balance(state, c.id));
+                if (b <= 0) {
+                    emit(state, out, c.id, 'Aapka koi baaki nahi hai 🙏 - ' + state.shop.name);
+                    return out;
+                }
+                c.payAsk = nowMs;
+                emit(state, out, c.id, 'Kitne ka QR bhejun? Poora ' + rupees(b) + ' ya kam? Raqam likh dijiye, jaise "' + Math.max(1, Math.round(b / 2)) + '".', { kind: 'pay-ask', amount: b });
+                return out;
+            }
+            return offerPay(state, c, { amount: pn.amount }, out, !!pn.bad);
+        }
         if (['pay_claim', 'abusive', 'opt_out', 'dispute', 'correction'].indexOf(ci.intent) < 0 && wantsToPay(text))
             ci = { intent: 'pay_now', parser: ci.parser };
         if (c.optedOut) {
@@ -8207,12 +8308,12 @@ function factory() {
     }
     // -------------------------------------------------------- demo seed
     /**
-     * Two demo shops. Each has ~75 days of settled history (so trust scores mean something) plus a few open dues
+     * Demo shops (Gupta, Zafar, Sai Krupa, Balaji). Each has ~75 days of settled history (so trust scores mean something) plus a few open dues
      * chosen so that one "next day" shows the whole reminder ladder: polite, firmer, firm + owner alert.
      */
     const DEMO_SHOPS = {
         gupta: {
-            shop: { id: 'gupta', name: 'Gupta Kirana Store', owner: 'Rakesh Gupta', upiId: 'guptakirana@upi', city: 'Nagpur' },
+            shop: { id: 'gupta', name: 'Gupta Kirana Store', owner: 'Rakesh Gupta', upiId: '', city: 'Nagpur' },
             seed: 7,
             // rates the agent already learned from earlier entries: name, rate, unit
             supplies: [['Agrawal Traders', 14000, 3], ['Hindustan Agency', 3500, 10]], // the shop's own maal udhaar: name, rupees, due in days
@@ -8251,8 +8352,60 @@ function factory() {
                 ['Choudhary ji', 0.7, [1650, 'ghee, dal', -7, 3]], ['Lanjewar bhau', 0.6, [2300, 'rashan, gas lighter', -11, 10], false]
             ]
         },
+        zafar: {
+            shop: { id: 'zafar', name: 'Zafar Sasta Bazaar', owner: '', upiId: '', city: 'Nagpur' },
+            seed: 41,
+            supplies: [['Noor Traders', 9000, 4]],
+            wholesalers: [['Noor Traders', 'aata, cheeni, chawal, dal, tel, besan'], ['City Agencies', 'sabun, surf, shampoo, chai patti, maggi, biscuit']],
+            prices: [['cheeni', 44, 'kg'], ['atta', 40, 'kg'], ['chawal', 55, 'kg'], ['tel', 175, 'l'], ['anda', 84, 'dozen'], ['maggi', 14, '']],
+            people: [
+                ['Salim bhai', 'salim', '9876600001', 0.85, ['salim.k@okaxis']],
+                ['Rukhsana aapa', 'rukhsana', '9876600002', 0.95, []],
+                ['Imran', 'imran', '9876600003', 0.4, []],
+                ['Farida khala', 'farida', '9876600004', 0.9, ['farida52@ybl']],
+                ['Asif bhai', 'asif', '9876600005', 0.5, []],
+                ['Nasreen didi', 'nasreen', null, 0.8, []]
+            ],
+            open: [
+                ['C001', 650, 'atta 10 kilo, tel', -5, 3], // Salim bhai: due in 3 days
+                ['C003', 240, 'anda, bread, maggi', -9, -2], // Imran: firmer reminder next morning
+                ['C005', 820, 'chawal 10 kilo, dal', -15, -6], // Asif bhai: firm reminder + owner alert next morning
+                ['C006', 150, 'chai patti, biscuit', -2, 5] // Nasreen didi: no WhatsApp number yet
+            ],
+            extra: [
+                ['Tiwari ji', 0.85, [1800, 'mahine ka rashan', -10, 4]], ['Shabana aunty', 0.9, [560, 'doodh, anda', -2, 6]],
+                ['Ghosh dada', 0.6, [2400, 'rashan, tel 5 litre', -16, -1]], ['Yadav ji', 0.75, [1250, 'atta, besan', -6, 5]],
+                ['Kareem chacha', 1.0, null], ['Pooja didi', 0.8, [900, 'sabun, surf, shampoo', -4, 7]]
+            ]
+        },
+        saikrupa: {
+            shop: { id: 'saikrupa', name: 'Sai Krupa Kirana Store', owner: '', upiId: '', city: 'Nagpur' },
+            seed: 59,
+            supplies: [['Laxmi Wholesale', 12500, 5]],
+            wholesalers: [['Laxmi Wholesale', 'aata, cheeni, chawal, dal, tel, poha'], ['Gokul Dairy', 'doodh, dahi, paneer, ghee']],
+            prices: [['cheeni', 45, 'kg'], ['atta', 42, 'kg'], ['poha', 60, 'kg'], ['tel', 180, 'l'], ['doodh', 30, 'pkt'], ['biscuit', 10, '']],
+            people: [
+                ['Kulkarni kaka', 'kulkarni', '9876700001', 0.95, ['kulkarni.s@okhdfc']],
+                ['Pawar bhau', 'pawar', '9876700002', 0.45, []],
+                ['Sunanda tai', 'sunanda', '9876700003', 0.9, ['sunanda.p@ybl']],
+                ['Gaikwad ji', 'gaikwad', '9876700004', 0.35, []],
+                ['Shinde sir', 'shinde', '9876700005', 0.8, []],
+                ['Mangala aunty', 'mangala', null, 0.85, []]
+            ],
+            open: [
+                ['C003', 480, 'poha, shengdana, tel', -4, 2], // Sunanda tai: due in 2 days
+                ['C002', 310, 'doodh, bread, biscuit', -8, -2], // Pawar bhau: firmer reminder next morning
+                ['C004', 1150, 'mahine ka saaman', -18, -6], // Gaikwad ji: firm reminder + owner alert next morning
+                ['C006', 200, 'dahi, paneer', -1, 4] // Mangala aunty: no WhatsApp number yet
+            ],
+            extra: [
+                ['Jadhav bhau', 0.7, [2100, 'rashan, tel 5 litre', -12, 3]], ['Deshpande kaku', 1.0, [700, 'dal, rava', -3, 6]],
+                ['More ji', 0.55, [2650, 'mahine ka rashan', -20, -1]], ['Kamble sir', 0.85, [950, 'atta 10 kilo', -5, 5]],
+                ['Sawant tai', 0.9, null]
+            ]
+        },
         balaji: {
-            shop: { id: 'balaji', name: 'Balaji Dairy & General', owner: 'Sunita Yadav', upiId: 'balajidairy@upi', city: 'Jorhat' },
+            shop: { id: 'balaji', name: 'Balaji Dairy & General', owner: 'Sunita Yadav', upiId: '', city: 'Jorhat' },
             seed: 23,
             prices: [['doodh', 60, 'l'], ['dahi', 80, 'kg'], ['paneer', 400, 'kg'], ['makhan', 56, 'pkt'], ['bread', 40, '']],
             people: [
@@ -8928,7 +9081,7 @@ function factory() {
         createState, seedDemo, handleOwnerMessage, parseOwnerMessage, applyIntent, recordOwnerMessage,
         handleUpiNotification, parseUpiText, handleCustomerMessage, confirmCash, pendingCash, runMorningJobs, runEveningSummary, advanceDay,
         // ledger + scores
-        balance, payAmount, UPI_MAX, wantsToPay, validUpi, totalOutstanding, customerScore, consentOf, requestConsent, answerConsent, revokeConsent, lenderView, DEMO_LENDER, shopProfile, dashboard, DEMO_SHOPS, creditHistory, findCustomers, upiLink,
+        balance, payAmount, UPI_MAX, wantsToPay, payNowAsk, validUpi, shopUpi, isPlaceholderUpi, totalOutstanding, customerScore, consentOf, requestConsent, answerConsent, revokeConsent, lenderView, DEMO_LENDER, shopProfile, dashboard, DEMO_SHOPS, creditHistory, findCustomers, upiLink,
         // llm
         llmRequestParts, intentFromLlm,
         // shared action layer
@@ -9406,7 +9559,7 @@ self.UdhaarCore = module.exports;
     const gst = p.gstRegistered !== false, have = p.taxIdMasked ? ' (saved: <span class="mono">' + esc(p.taxIdMasked) + '</span>; leave empty to keep it)' : '';
     return '<label for="pfShop">Shop name</label><input type="text" id="pfShop" maxlength="80" required value="' + esc(p.shopName || (state && state.shop ? state.shop.name : '')) + '">' +
       '<label for="pfOwner">Owner name</label><input type="text" id="pfOwner" maxlength="80" required value="' + esc(p.ownerName || '') + '">' +
-      '<label for="pfUpi">UPI ID for customer payments</label><input type="text" id="pfUpi" class="mono" maxlength="100" autocomplete="off" spellcheck="false" inputmode="email" placeholder="guptakirana@okaxis" value="' + esc(state && state.shop ? state.shop.upiId || '' : '') + '">' +
+      '<label for="pfUpi">UPI ID for customer payments</label><input type="text" id="pfUpi" class="mono" maxlength="100" autocomplete="off" spellcheck="false" inputmode="email" placeholder="yourname@okaxis" value="' + esc(state && state.shop ? C.shopUpi(state) : '') + '">' +
       '<p class="fnote">When a customer writes "QR bhejo" or "200 ka QR bhejo" on WhatsApp, the agent sends a UPI QR for that amount to this ID. Leave it empty to turn QR payments off.</p>' +
       '<label for="pfAddr">Shop address</label><textarea id="pfAddr" rows="2" maxlength="300" required>' + esc(p.address || '') + '</textarea>' +
       '<label class="chk"><input type="checkbox" id="pfNoGst"' + (gst ? '' : ' checked') + '> Not GST registered</label>' +

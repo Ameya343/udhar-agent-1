@@ -48,7 +48,7 @@ test('queries, summary, reminders, undo, phone', () => {
 });
 
 test('end to end: credit, reminder on due date, UPI tagged payment settles', () => {
-  const s = C.createState({ today: TODAY });
+  const s = C.createState({ today: TODAY, shop: { upiId: 'sharmastore@okaxis' } });
   C.handleOwnerMessage(s, 'Sharma ji ne 340 ka saaman liya, Friday ko denge');
   C.handleOwnerMessage(s, 'haan'); // a new name opens a khata only after the owner's haan
   C.handleOwnerMessage(s, 'Sharma ji ka number 9876500001');

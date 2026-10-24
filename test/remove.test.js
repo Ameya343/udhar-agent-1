@@ -132,15 +132,17 @@ test('WhatsApp: recipient blocked, one polite line, no new-number ask, restore w
     assert.deepStrictEqual(fetch.to(SHARMA), []);
     await inbound(SHARMA, 'hi');
     await inbound(SHARMA, 'hello?');
-    // never silent: one short line to the number, and the owner is asked once whether to reopen the khata
-    assert.deepStrictEqual(fetch.to(SHARMA), ['Namaste 🙏 Aapka message Gupta Kirana Store ko bhej diya hai. Dukaan jald jawab degi.']);
+    // never silent: every message gets a short line, and the owner is asked once whether to reopen the khata
+    assert.deepStrictEqual(fetch.to(SHARMA), ['Namaste 🙏 Aapka message Gupta Kirana Store ko bhej diya hai. Dukaan jald jawab degi.', '🙏 Aapka message Gupta Kirana Store tak pahuncha diya hai.']);
+    assert.match(fetch.to(OWNER).join('\n'), /Sharma ji \(hataye gaye\) ne likha: "hello\?"/);
     assert.doesNotMatch(fetch.to(OWNER).join('\n'), /Naya number/);
     assert.strictEqual(fetch.to(OWNER).filter((t) => /Sharma ji \(0001\) ne hi bheja\. Khata kholun\? \*ok\*/.test(t)).length, 1);
     fetch.clear();
     await inbound(OWNER, 'nahi');
     assert.match(fetch.to(OWNER).join('\n'), /hataye hue hi rahenge/);
     await inbound(SHARMA, 'hi');
-    assert.deepStrictEqual(fetch.to(SHARMA), [], 'declined today: not asked again, ack already sent within 12 h');
+    assert.deepStrictEqual(fetch.to(SHARMA), ['🙏 Aapka message Gupta Kirana Store tak pahuncha diya hai.'], 'declined today: not asked again, but still a reply');
+    assert.doesNotMatch(fetch.to(OWNER).join('\n'), /Khata kholun/);
     fetch.clear();
     await inbound(OWNER, 'Sharma ji ko wapas lao');
     assert.match(fetch.to(OWNER).join('\n'), /♻️ Sharma ji wapas aa gaye/);

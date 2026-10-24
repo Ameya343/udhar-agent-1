@@ -96,6 +96,8 @@ export interface Customer {
   waLimits?: WaLimits;
   statementOk?: { date: IsoDate; balance: number };
   statementAuto?: boolean;
+  /** when the customer was asked "Kitne ka QR bhejun?" (ms); a bare number answers it */
+  payAsk?: number;
   demo?: boolean;
 }
 

@@ -190,3 +190,18 @@ use the JSON form on a copy instead.
 ## Tests
 `TEST_SCHEMA_DATABASE_URL=postgres://khata:pw@localhost/khata_schema_test` runs `test/pgschema.test.js` against its own
 scratch database (it drops schemas and the shared tables, so it must not be the `TEST_DATABASE_URL` database).
+
+## Adding the demo shops, each with its own tables
+`scripts/seed-shops.ts` puts demo shops (Zafar Sasta Bazaar `zafar`, Sai Krupa Kirana Store `saikrupa`, or any id in
+`DEMO_SHOPS`) into the database in the pg-schema layout: a row in `public.shops` and one schema per shop with its own
+`customers`, `customer_txns`, `traders`, `trader_txns`, `items`, `messages`, `orders` and `extras` tables.
+```
+npm run build
+DATABASE_URL=... node dist-server/scripts/seed-shops.js zafar saikrupa            # dry run: prints what it would write
+DATABASE_URL=... node dist-server/scripts/seed-shops.js zafar saikrupa --apply    # writes, then reads back and checks
+```
+- Each shop is written in one transaction and read back; any difference rolls it back.
+- A shop whose schema already holds a khata is left alone unless `--force` is given.
+- The Gupta shop on the live server stays where it is (`STORE=pg-tables`). To move it into its own schema too, use
+  `scripts/pg-tables-to-schema.ts gupta --apply`.
+- To serve one of these shops, run a server with `SHOP=zafar STORE=pg-schema` (one server per shop).

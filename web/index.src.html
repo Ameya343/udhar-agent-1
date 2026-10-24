@@ -1143,7 +1143,7 @@ try { var t = localStorage.getItem('udhaar-theme'); if (t !== 'light' && t !== '
     const gst = p.gstRegistered !== false, have = p.taxIdMasked ? ' (saved: <span class="mono">' + esc(p.taxIdMasked) + '</span>; leave empty to keep it)' : '';
     return '<label for="pfShop">Shop name</label><input type="text" id="pfShop" maxlength="80" required value="' + esc(p.shopName || (state && state.shop ? state.shop.name : '')) + '">' +
       '<label for="pfOwner">Owner name</label><input type="text" id="pfOwner" maxlength="80" required value="' + esc(p.ownerName || '') + '">' +
-      '<label for="pfUpi">UPI ID for customer payments</label><input type="text" id="pfUpi" class="mono" maxlength="100" autocomplete="off" spellcheck="false" inputmode="email" placeholder="guptakirana@okaxis" value="' + esc(state && state.shop ? state.shop.upiId || '' : '') + '">' +
+      '<label for="pfUpi">UPI ID for customer payments</label><input type="text" id="pfUpi" class="mono" maxlength="100" autocomplete="off" spellcheck="false" inputmode="email" placeholder="yourname@okaxis" value="' + esc(state && state.shop ? C.shopUpi(state) : '') + '">' +
       '<p class="fnote">When a customer writes "QR bhejo" or "200 ka QR bhejo" on WhatsApp, the agent sends a UPI QR for that amount to this ID. Leave it empty to turn QR payments off.</p>' +
       '<label for="pfAddr">Shop address</label><textarea id="pfAddr" rows="2" maxlength="300" required>' + esc(p.address || '') + '</textarea>' +
       '<label class="chk"><input type="checkbox" id="pfNoGst"' + (gst ? '' : ' checked') + '> Not GST registered</label>' +

@@ -160,7 +160,7 @@ test('WhatsApp: "200 ka QR bhejo" gets the QR image for ₹200, a tap-to-pay lin
     await w.say(CUST, '200 ka QR bhejo');
     const m = w.to(CUST).join('\n');
     assert.match(m, /Aapka baaki: ₹500/);
-    assert.match(m, /Aap ₹200 de rahe hain, baaki ₹300 rahega/);
+    assert.match(m, /₹200 ka QR\. Baaki ₹300 baad mein\./);
     assert.match(m, /₹200 ka UPI QR neeche/);
     assert.match(m, new RegExp(PUBLIC.replace(/\./g, '\\.') + '/pay/' + w.c.id + '\\.[0-9a-f]{16}\\?amt=200'));
     const img = w.images(CUST);
@@ -271,4 +271,73 @@ test('Shop profile: the owner adds the shop UPI once, and from then on "QR bhejo
     assert.equal(st().shop.upiId, 'rohit3@ybl');
     assert.equal(C.balance(st(), c.id), 500);
   } finally { w.server.close(); }
+});
+
+test('Placeholder UPI: a demo ID left in saved data never reaches a customer; after a profile save the QR pays the saved UPI', async () => {
+  // demo data never ships a real-looking UPI ID
+  for (const id of Object.keys(C.DEMO_SHOPS || {})) {
+    const s = C.createState(); if (C.seedDemo) C.seedDemo(s, id);
+    assert.ok(!C.isPlaceholderUpi(s.shop.upiId), id);
+  }
+  assert.equal(C.createState().shop.upiId, '');
+  for (const p of ['guptakirana@upi', ' GuptaKirana@UPI ', 'balajidairy@upi', 'nayidukaan@upi', 'zafarsastabazaar@upi', 'saikrupakirana@upi']) {
+    assert.equal(C.validUpi(p), null, p);
+    assert.ok(C.isPlaceholderUpi(p), p);
+  }
+  const w = await owing500();
+  try {
+    const st = () => w.server.getState();
+    st().shop.upiId = 'guptakirana@upi'; // what the live gupta shop still had from the old seed
+    assert.equal(C.shopUpi(st()), '');
+    assert.equal(C.upiLink(st(), w.c, 100), '');
+    // pay page: no QR, no UPI button, cash only
+    const r = await w.pay();
+    assert.equal(r.status, 200);
+    assert.equal(upiIn(r.html), null);
+    assert.doesNotMatch(r.html, /guptakirana/);
+    assert.match(r.html, /UPI abhi set nahi/);
+    // WhatsApp: no QR image, cash text, the owner is told
+    w.clear();
+    await w.say(CUST, 'QR bhejo');
+    assert.equal(w.images(CUST).length, 0);
+    assert.doesNotMatch(w.to(CUST).join('\n'), /guptakirana/);
+    assert.match(w.to(CUST).join('\n'), /UPI abhi set nahi/);
+    assert.match(w.to(OWNER).join('\n'), /Shop profile mein UPI ID daal dijiye/);
+    // the owner saves their own UPI: the QR on WhatsApp and the pay page both pay exactly that
+    st().shop.upiId = 'rohit.real@okaxis';
+    w.clear();
+    await w.say(CUST, '200 ka QR bhejo');
+    assert.equal(w.images(CUST).length, 1);
+    assert.match(w.images(CUST)[0].caption, /rohit\.real@okaxis/);
+    assert.equal(new URL(C.upiLink(st(), w.c, 200)).searchParams.get('pa'), 'rohit.real@okaxis');
+    assert.equal(upiIn((await w.pay('?amt=200')).html).searchParams.get('pa'), 'rohit.real@okaxis');
+  } finally { w.server.close(); }
+});
+
+test('Profile save: a placeholder UPI is refused; a real one is what the QR pays, in memory and after a restart', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'udhaar-upi-'));
+  const w = waServer({ ADMIN_KEY: 'admin-secret', DATA_DIR: dir });
+  const base = await listen(w.server);
+  const post = (p, body, cookie) => fetch(base + p, { method: 'POST', headers: Object.assign({ 'content-type': 'application/json' }, cookie ? { cookie } : {}), body: JSON.stringify(body) });
+  try {
+    const profile = { shopName: 'Rohit Stores', ownerName: 'Rohit', address: '1 Main Road', gstRegistered: true, gstin: '27AAPFU0939F1ZV', phone: '9800000001', password: 'meri-dukaan', adminKey: 'admin-secret' };
+    let r = await post('/api/auth/setup', Object.assign({}, profile, { upiId: 'guptakirana@upi' }));
+    assert.equal(r.status, 400);
+    assert.equal(w.server.getState().shop.upiId, '');
+    r = await post('/api/auth/setup', profile);
+    const cookie = (r.headers.get('set-cookie') || '').split(';')[0];
+    const { phone, password, adminKey, ...edit } = profile;
+    r = await post('/api/profile', Object.assign({}, edit, { upiId: 'guptakirana@upi' }), cookie);
+    assert.equal(r.status, 400);
+    r = await post('/api/profile', Object.assign({}, edit, { upiId: 'Owner.Own@OKSBI' }), cookie);
+    assert.equal(r.status, 200);
+    assert.equal((await r.json()).upiId, 'owner.own@oksbi');
+    await w.say(CUST, 'hi');
+    await w.say(OWNER, 'Rohit 500 udhaar');
+    const c = w.server.getState().customers.find((x) => x.phone === '9812345678');
+    assert.equal(new URL(C.upiLink(w.server.getState(), c, 500)).searchParams.get('pa'), 'owner.own@oksbi');
+  } finally { w.server.close(); }
+  // the saved file holds the same UPI, so a restart serves it too
+  const w2 = waServer({ DATA_DIR: dir });
+  try { assert.equal(C.shopUpi(w2.server.getState()), 'owner.own@oksbi'); } finally { w2.server.close(); }
 });
