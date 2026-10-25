@@ -312,4 +312,4 @@ function fallbackStore(env: Env, file: Store, local: State, marker: string, dual
   return self;
 }
 
-export { describe, createFileStore, createPgStore, createPgTablesStore, createPgSchemaStore, makerFor, pgTypes, openStore, DDL, UPSERT };
+export { describe, delaysFrom, createFileStore, createPgStore, createPgTablesStore, createPgSchemaStore, makerFor, pgTypes, openStore, DDL, UPSERT };

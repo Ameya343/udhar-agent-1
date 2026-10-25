@@ -10035,7 +10035,7 @@ self.UdhaarCore = module.exports;
   $('dayList').addEventListener('click', (e) => { const li = e.target.closest('li[data-c]'); if (li) openCustomer(li.dataset.c); });
 
   // ---------- panel ----------
-  function openPanel(p) { ui.panel = p; renderPanel(); $('overlay').hidden = false; document.body.style.overflow = 'hidden'; }
+  function openPanel(p) { ui.panel = p; $('panel').innerHTML = ''; renderPanel(); $('overlay').hidden = false; document.body.style.overflow = 'hidden'; }
   function closePanel() { ui.panel = null; $('overlay').hidden = true; document.body.style.overflow = ''; }
   $('overlay').addEventListener('click', (e) => { if (e.target === $('overlay') || e.target.closest('[data-close]')) closePanel(); });
   addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.panel) closePanel(); });
@@ -10344,7 +10344,27 @@ self.UdhaarCore = module.exports;
     try { await postJson('api/auth/password', { current: $('cpOld').value, password: $('cpNew').value }); $('cpOld').value = $('cpNew').value = ''; toast('Password changed.'); }
     catch (x) { err.textContent = x.message; }
   });
-  $('profileBtn').addEventListener('click', () => { closeMenu(); openPanel({ type: 'profile' }); });
+  // the profile is read fresh from the server each time: another device may have changed the UPI ID, address or name
+  $('profileBtn').addEventListener('click', async () => {
+    closeMenu();
+    await refreshFromServer();
+    openPanel({ type: 'profile' });
+  });
+  // keep every open device in step with the server: the khata changes on WhatsApp and on the owner's other devices
+  let refreshing = false;
+  async function refreshFromServer() {
+    if (!REMOTE || refreshing || busy || !auth || !auth.owner) return;
+    refreshing = true;
+    try {
+      const a = await (await fetch('api/auth/status', { credentials: 'same-origin', headers: ownerHeaders() })).json();
+      if (a && a.owner) { auth = a; authMenu(); } else return;
+      const j = await (await fetch('api/state', { credentials: 'same-origin', headers: ownerHeaders() })).json();
+      if (j && j.state && !busy) { const top = $('panel').scrollTop; state = j.state; renderWa(j.whatsapp); render(); $('panel').scrollTop = top; }
+    } catch (e) { /* offline for a moment: the next refresh tries again */ } finally { refreshing = false; }
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshFromServer(); });
+  addEventListener('focus', () => refreshFromServer());
+  setInterval(() => { if (!document.hidden) refreshFromServer(); }, 30000);
   $('setupBtn').addEventListener('click', () => { closeMenu(); ui.panel = { type: 'setup' }; $('panel').innerHTML = setupCard(true); $('overlay').hidden = false; document.body.style.overflow = 'hidden'; });
   $('logoutBtn').addEventListener('click', async () => {
     closeMenu();

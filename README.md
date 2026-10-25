@@ -299,7 +299,7 @@ flowchart LR
 | Database | PostgreSQL on Neon with row-level security, plus a JSON file backup written at the same time |
 | Hosting | Agent37 instance, deployed as an Agent37 template (Docker, `node:22-alpine`) |
 | Dashboard | Single HTML page built from `web/index.src.html`, served by the agent |
-| Tests | `node --test`, 483 tests; live test run of 900 cases (`livetest/`) |
+| Tests | `node --test`, 489 tests; live test run of 900 cases (`livetest/`) |
 
 ## 7. Data model
 
@@ -349,7 +349,7 @@ After the AI, the **safety rules always run**. Replies are written in Hinglish a
 
 | What | Result | Scope |
 |---|---|---|
-| Unit and flow tests (`npm test`) | **483 tests**: 466 pass, 0 fail, 17 skipped (tests that need a live database are skipped without one) | Parser, safety rules, WhatsApp flows, voice, PostgreSQL store, dashboard, stress cases, plus white-box tests of internal branches |
+| Unit and flow tests (`npm test`) | **489 tests**: 472 pass, 0 fail, 17 skipped (tests that need a live database are skipped without one) | Parser, safety rules, WhatsApp flows, voice, PostgreSQL store, dashboard, stress cases, plus white-box tests of internal branches |
 | Coverage | about **90% of lines** and **91% of branches** | Measured with Node's built-in test coverage over the same suite |
 | Stress test | about **7,000** generated messages, **0 open bugs from the stress test** (every bug it found was fixed) | **Rules path only** |
 | Five rounds of manual stress testing | every finding logged in Jira (KAN-15 to KAN-147), fixed with a regression test in `test/st3.test.js`, `test/st4.test.js`, `test/st5.test.js` and others | Rules path, plus the AI path with a mocked model |
@@ -412,7 +412,7 @@ flowchart LR
 | Check | Result |
 |---|---|
 | Live test run (`livetest/`, 900 hand-checked Hinglish cases in 15 groups) | **900 / 900 pass** |
-| Unit and flow tests (`npm test`) | **483 tests**: 466 pass, 0 fail, 17 skipped (need a live database) |
+| Unit and flow tests (`npm test`) | **489 tests**: 472 pass, 0 fail, 17 skipped (need a live database) |
 
 **How to run the test-run:**
 

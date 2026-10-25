@@ -213,11 +213,22 @@ async function createPgAuthStore(databaseUrl: string, shopId: string, opts?: { p
 }
 
 /** The file store, or the database (with the JSON file as backup under DUAL_WRITE_JSON=1); a database that is down falls back to the file. */
-async function openAuthStore(env: Env, dataDir: string, shopId: string, opts?: { pg?: typeof PgModule; log?: (m: string) => void }): Promise<AuthStore> {
+// retried at start like the khata store (DB_START_RETRY_MS), so a slow database does not leave the logins on a file (KAN-151)
+async function openAuthStore(env: Env, dataDir: string, shopId: string, opts?: { pg?: typeof PgModule; log?: (m: string) => void; delays?: number[] }): Promise<AuthStore> {
   const file = createFileAuthStore(dataDir, shopId);
   if (!env.DATABASE_URL) return file;
-  try { return await createPgAuthStore(env.DATABASE_URL, env.SHOP_ID || shopId, { pg: opts && opts.pg, file: env.DUAL_WRITE_JSON === '1' ? file : null }); }
-  catch (e: any) { (opts && opts.log || console.log)('Owner login: database not reachable (' + String(e && (e.code || e.name) || 'error') + '); using ' + shopId + '.auth.json'); return file; }
+  const log = (opts && opts.log) || console.log;
+  const { delaysFrom } = require('./store') as typeof import('./store');
+  const delays: number[] = opts && opts.delays ? opts.delays : delaysFrom(env, {});
+  for (let i = 0; ; i++) {
+    try { return await createPgAuthStore(env.DATABASE_URL, env.SHOP_ID || shopId, { pg: opts && opts.pg, file: env.DUAL_WRITE_JSON === '1' ? file : null }); }
+    catch (e: any) {
+      const why = String(e && (e.code || e.name) || 'error');
+      if (i >= delays.length) { log('Owner login: database not reachable (' + why + '); using ' + shopId + '.auth.json'); return file; }
+      log('Owner login: database connect attempt ' + (i + 1) + ' failed (' + why + '); retrying in ' + Math.round(delays[i] / 1000) + ' s');
+      await new Promise((r) => setTimeout(r, delays[i]));
+    }
+  }
 }
 
 // ---------- the auth service ----------
