@@ -412,6 +412,13 @@ input, select, textarea { background-color: var(--input); color: var(--text); }
 .aform .row2 { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
 .aform h3 { font-size: 15px; margin-top: 20px; }
 .aform .mono { font-family: var(--mono); }
+.etabs { display: flex; gap: 6px; margin: 4px 0 8px; }
+.etabs button { flex: 1; border: 1px solid var(--line-2); background: transparent; color: var(--text); border-radius: 12px; padding: 9px 10px; font-weight: 600; }
+.etabs button[aria-selected="true"] { background: var(--inv-bg); color: var(--inv-fg); border-color: var(--inv-bg); }
+.wabox { border: 1px solid rgba(245,177,76,.4); background: var(--amber-soft); border-radius: 14px; padding: 12px 14px; margin-bottom: 14px; font-size: 14px; }
+.wabox.ok { border-color: var(--line-2); background: rgba(var(--ink), .03); }
+.wabox .row2 { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.wabox .qr svg { width: 100%; max-width: 260px; height: auto; background: #fff; padding: 10px; border-radius: 12px; margin-top: 10px; }
 .linkbtn { background: none; border: 0; color: var(--violet-2); padding: 0; font-size: 13.5px; text-decoration: underline; cursor: pointer; }
 :focus-visible { outline: 2px solid var(--violet-2); outline-offset: 2px; }
 .rows li:focus-visible, #custTable tbody tr:focus-visible { outline-offset: -2px; }
@@ -563,6 +570,7 @@ try { var t = localStorage.getItem('udhaar-theme'); if (t !== 'light' && t !== '
 <main>
   <!-- HOME: numbers only -->
   <div class="view" data-v="home">
+    <div class="wabox" id="waBox" hidden></div>
     <div class="hero">
       <div class="kpi main tap" data-open="owing">
         <div class="kh"><span class="ico"><svg class="i"><use href="#i-rupee"/></svg></span><div class="kt"><b class="kname">Customers owe you</b><small>Money to collect</small></div><button class="go" type="button" data-open="owing">See who <svg class="i sm"><use href="#i-chevr"/></svg></button></div>
@@ -10191,13 +10199,46 @@ self.UdhaarCore = module.exports;
     if (e.target.id !== 'pfNoGst') return;
     const f = e.target.closest('form'); f.querySelector('#pfGstBox').hidden = e.target.checked; f.querySelector('#pfPanBox').hidden = !e.target.checked;
   });
-  function loginCard() {
-    return '<form class="aform" id="loginForm"><h2>Owner login</h2><p>' + esc(state && state.shop ? state.shop.name : 'Your shop') + '. Log in to see your khata.</p>' +
+  // the entry page: log in to your own shop, or register a brand-new one (empty khata)
+  function entryCard(tab) {
+    const reg = tab === 'register';
+    const tabs = '<div class="etabs" role="tablist"><button type="button" role="tab" data-etab="login" aria-selected="' + !reg + '">Login</button><button type="button" role="tab" data-etab="register" aria-selected="' + reg + '">Register new shop</button></div>';
+    const setup = auth && !auth.hasOwner && auth.adminKeySet ? '<p class="fnote" style="margin-top:14px"><button type="button" class="linkbtn" data-etab="setup">Set up this server\'s own shop (needs the admin key)</button></p>' : '';
+    if (!reg) return '<form class="aform" id="loginForm"><h2>Udhaar Agent</h2><p>Log in to open your shop\'s khata.</p>' + tabs +
       '<label for="lgPhone">Mobile number</label><input type="tel" id="lgPhone" autocomplete="username" inputmode="numeric" required placeholder="98XXXXXXXX">' +
       '<label for="lgPw">Password or PIN</label><input type="password" id="lgPw" autocomplete="current-password" required>' +
-      '<div class="err" id="lgErr" role="alert"></div><div class="row2"><button class="btn primary" type="submit">Log in</button></div>' +
-      '<p class="fnote" style="margin-top:14px">Forgot your password? Open the shop with your owner link (the one with ?key=), then use Menu → Shop profile.</p></form>';
+      '<div class="err" id="lgErr" role="alert"></div><div class="row2"><button class="btn primary" type="submit">Log in</button></div>' + setup + '</form>';
+    return '<form class="aform" id="regForm"><h2>Udhaar Agent</h2><p>A new shop starts with an empty khata. Only you can open it.</p>' + tabs +
+      '<label for="rgShop">Shop name</label><input type="text" id="rgShop" maxlength="80" required>' +
+      '<label for="rgOwner">Owner name</label><input type="text" id="rgOwner" maxlength="80" required>' +
+      '<label for="rgPhone">Mobile number</label><input type="tel" id="rgPhone" autocomplete="username" inputmode="numeric" required placeholder="98XXXXXXXX">' +
+      '<label for="rgPw">Password or PIN (at least 6)</label><input type="password" id="rgPw" autocomplete="new-password" minlength="6" required>' +
+      '<label for="rgPw2">Type it again</label><input type="password" id="rgPw2" autocomplete="new-password" minlength="6" required>' +
+      '<label for="rgTax">GSTIN or PAN (optional)</label><input type="text" id="rgTax" class="mono" maxlength="15" autocomplete="off" spellcheck="false" placeholder="22AAAAA0000A1Z5 or ABCDE1234F">' +
+      '<p class="fnote">' + TAX_NOTE + '</p>' +
+      '<div class="err" id="rgErr" role="alert"></div><div class="row2"><button class="btn primary" type="submit">Create my shop</button></div></form>';
   }
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest && e.target.closest('[data-etab]'); if (!b) return;
+    showGate(b.dataset.etab === 'setup' ? setupCard(false) : entryCard(b.dataset.etab));
+  });
+  // a shop's own WhatsApp number: status, QR to scan, connect / disconnect (self-registered shops)
+  let waTimer = null;
+  function renderWa(w) {
+    const box = $('waBox'); if (!box) return;
+    clearTimeout(waTimer);
+    if (!w || w.home) { box.hidden = true; return; }
+    box.hidden = false; box.className = 'wabox' + (w.connected ? ' ok' : '');
+    box.innerHTML = (w.connected ? '<b>✅ WhatsApp connected' + (w.number ? ' (' + esc(w.number) + ')' : '') + '</b><div class="fnote">Messages to and from your shop number are handled here.</div>'
+      : '<b>WhatsApp not connected yet</b><div class="fnote">' + esc(w.note || 'This shop works from the dashboard for now.') + '</div>' + (w.qrSvg ? '<div class="qr">' + w.qrSvg + '</div>' : '')) +
+      '<div class="row2">' + (w.state === 'off' ? '<button class="btn primary" type="button" id="waConnect">Connect WhatsApp</button>' : '<button class="btn" type="button" id="waDisconnect">Disconnect WhatsApp</button>') + '</div>';
+    if (w.state !== 'off' && !w.connected) waTimer = setTimeout(() => fetch('api/wa/status', { credentials: 'same-origin' }).then((r) => r.json()).then(renderWa).catch(() => {}), 4000);
+  }
+  document.addEventListener('click', async (e) => {
+    if (e.target.id !== 'waConnect' && e.target.id !== 'waDisconnect') return;
+    if (e.target.id === 'waDisconnect' && !confirm('Disconnect this shop\'s WhatsApp number?')) return;
+    try { renderWa(await postJson(e.target.id === 'waConnect' ? 'api/wa/connect' : 'api/wa/disconnect', {})); } catch (x) { toast(x.message); }
+  });
   function setupCard(inPanel) {
     let k = ''; try { k = localStorage.getItem('udhaar-admin-key') || ''; } catch (e) {}
     return '<form class="aform" id="setupForm">' + (inPanel ? '<div class="phead"><div><h2 id="pTitle">Create owner login</h2></div><button class="x" type="button" data-close aria-label="Close">×</button></div>' : '<h2>Set up your shop</h2>') +
@@ -10224,27 +10265,35 @@ self.UdhaarCore = module.exports;
   async function loadAuth() {
     try { auth = await (await fetch('api/auth/status', { credentials: 'same-origin', headers: ownerHeaders() })).json(); } catch (e) { auth = null; }
     authMenu();
-    if (!auth || !auth.live || auth.owner) { showGate(''); return auth; }
-    showGate(auth.hasOwner ? loginCard() : auth.adminKeySet ? setupCard(false) : '');
+    if (!auth || auth.owner) { showGate(''); return auth; }
+    showGate(entryCard('login')); // not logged in: the entry page, never someone else's shop
     return auth;
   }
   function loadState() {
     return fetch('api/state', { headers: ownerHeaders() }).then((r) => r.json()).then((j) => {
       state = j.state;
+      renderWa(j.whatsapp);
       if (j.live) for (const id of ['nextDay', 'closeDay', 'resetBtn']) $(id).hidden = true;
+      if (j.own) $('resetBtn').hidden = true; // a registered shop's real khata: no demo reset
       render();
       if (j.locked && $('gate').hidden) toast('Only the shop owner can see this account. Please log in.');
       countUp(['kOut', 'kLate', 'kToday', 'kSup', 'kWeek']);
     }).catch(() => toast('Could not load the account from the agent server. Please reload.'));
   }
   document.addEventListener('submit', async (e) => {
-    const f = e.target; if (!['loginForm', 'setupForm', 'pfForm'].includes(f.id)) return;
+    const f = e.target; if (!['loginForm', 'setupForm', 'pfForm', 'regForm'].includes(f.id)) return;
     e.preventDefault();
     const err = f.querySelector('.err'), btn = f.querySelector('button[type=submit]'); err.textContent = ''; btn.disabled = true;
     try {
       if (f.id === 'loginForm') {
         await postJson('api/auth/login', { phone: $('lgPhone').value, password: $('lgPw').value });
         await loadAuth(); await loadState(); toast('Logged in.');
+      } else if (f.id === 'regForm') {
+        if ($('rgPw').value !== $('rgPw2').value) throw new Error('The two passwords are not the same');
+        const tax = $('rgTax').value.trim().toUpperCase();
+        await postJson('api/auth/register', { shopName: $('rgShop').value, ownerName: $('rgOwner').value, phone: $('rgPhone').value, password: $('rgPw').value,
+          gstin: tax.length === 15 ? tax : '', pan: tax && tax.length !== 15 ? tax : '' });
+        await loadAuth(); await loadState(); toast('Your shop is ready. Next time, log in with your mobile number and password.');
       } else if (f.id === 'setupForm') {
         if (f.querySelector('#suPw').value !== f.querySelector('#suPw2').value) throw new Error('The two passwords are not the same');
         await postJson('api/auth/setup', Object.assign(profileValues(f), { adminKey: f.querySelector('#suKey').value, phone: f.querySelector('#suPhone').value, password: f.querySelector('#suPw').value }));
@@ -10273,7 +10322,7 @@ self.UdhaarCore = module.exports;
   // ---------- boot ----------
   showView(location.hash.slice(1), true);
   if (REMOTE) {
-    loadAuth().then((a) => { if (a && a.owner && !a.hasOwner && a.live && a.adminKeySet) toast('Tip: create your own owner login from the menu (top right).'); return loadState(); });
+    loadAuth().then((a) => { if (a && a.owner && !a.hasOwner && a.live && a.adminKeySet) toast('Tip: create your own owner login from the menu (top right).'); return a && a.owner ? loadState() : undefined; });
   } else { if (!load()) fresh(); render(); countUp(['kOut', 'kLate', 'kToday', 'kSup', 'kWeek']); }
 })();
 </script>

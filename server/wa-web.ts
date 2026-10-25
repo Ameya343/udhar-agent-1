@@ -236,7 +236,16 @@ function createWebTransport(o: WebTransportOpts) {
 
   function stop() { gen++; clearTimeout(retryTimer!); retryTimer = null; const s = sock; sock = null; if (s && s.end) try { s.end(undefined); } catch (e) { /* closed */ } }
 
-  return { start, stop, send, download, status, qr: () => st.qr, state: () => st.state, number: () => st.me, idle: () => chain };
+  /** Unlinks the number (WhatsApp logout when connected) and forgets its keys; start() afterwards shows a new QR. */
+  async function logout() {
+    gen++; clearTimeout(retryTimer!); retryTimer = null;
+    const s = sock; sock = null;
+    if (s) { try { if (s.logout) await s.logout(); else if (s.end) s.end(undefined); } catch (e) { /* already closed */ } }
+    try { fs.rmSync(authDir, { recursive: true, force: true }); } catch (e) { /* already gone */ }
+    st.state = 'off'; st.me = null; st.qr = null; retry = 0;
+  }
+
+  return { start, stop, logout, send, download, status, qr: () => st.qr, state: () => st.state, number: () => st.me, idle: () => chain };
 }
 
 export { createWebTransport, parseWebMessage };
