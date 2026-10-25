@@ -24,3 +24,10 @@ test('the page is built with the core and the cases, and the inline script is no
   const body = html.slice(html.indexOf('<script>'), html.indexOf('</script>'));
   assert.match(body, /root\.UdhaarCases = make/); assert.match(body, /root\.UdhaarRunner = make/); assert.match(body, /freshShop/);
 });
+
+test('the shop dashboard does not link to the test run: it is a separate page with its own link', () => {
+  for (const f of ['index.html', 'dist/udhaar-agent.html', 'dist/udhaar-agent-standalone.html']) {
+    const html = fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+    assert.doesNotMatch(html, /href="\/?test-run/, f);
+  }
+});

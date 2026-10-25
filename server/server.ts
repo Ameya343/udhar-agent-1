@@ -304,7 +304,7 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
   function emptyShop(id: string, name: string, owner: string): State {
     const s = C.freshShop('nayi', today());
     const was = s.shop.name;
-    Object.assign(s.shop, { id, name, owner, upiId: '' });
+    Object.assign(s.shop, { id, name, owner, upiId: '', city: '' }); // the register form asks no city: never the demo shop's town (KAN-152)
     s.wsSeeded = true; // no demo wholesalers
     for (const m of s.messages) m.text = m.text.split(was).join(name).replace(/^Namaste Malik ji/, 'Namaste ' + (owner.split(' ')[0] || 'Malik') + ' ji');
     return s;
@@ -467,7 +467,7 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
     const id = newShopId();
     const name = String(b.shopName).replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 80), owner = String(b.ownerName).replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 80);
     try { await registry.add({ id, phone: phone!, name, createdAt: new Date((opts!.now || Date.now)()).toISOString() }); }
-    catch (e: any) { return e && e.code === 409 ? send(res, 409, { error: 'This mobile number already has a shop. Please log in.' }) : send(res, 503, { error: 'Could not create the shop right now. Please try again.' }); }
+    catch (e: any) { return e && e.code === 409 ? send(res, 409, { error: 'This mobile number already has a shop. Please log in.' }) : send(res, 503, { error: 'Could not create the shop right now (the database is not reachable). Please try again in a minute.' }); }
     const t = await tenant(id, { name, owner });
     if (!t) return send(res, 500, { error: 'server error' });
     const out = t.auth.register(b);
@@ -502,6 +502,7 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
       if (req.method === 'GET' && url.pathname === '/favicon.ico') { res.writeHead(204); return res.end(); }
       if (req.method === 'GET' && url.pathname === '/healthz') return send(res, 200, { ok: true, shop: shopId, llm: engine.llm, scheduler: env.REAL_CLOCK === '1', llmCalls: engine.llmCalls, llmFallbacks: engine.llmFallbacks, ai: llm.health(),
         owner: { store: authStore.kind, account: auth.hasOwner(), taxIdEncrypted: auth.encryptionOn(), todo: ownerTodo() },
+        registry: registry.kind,
         storage: { kind: store.kind, dualWriteJson: !!store.dualWrite, fallback: store.fallback || null, lastError: store.lastError || null },
         whatsapp: { provider: wa.provider, enabled: wa.stats.enabled, sending: wa.stats.sending, voice: wa.stats.stt, voiceProvider: wa.stats.sttProvider || null, voiceNotes: wa.stats.voiceNotes, received: wa.stats.received, sent: wa.stats.sent, failed: wa.stats.failed, lastError: wa.stats.lastError,
           web: web ? web.status() : null } });

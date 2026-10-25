@@ -81,10 +81,54 @@ async function createPgRegistry(databaseUrl: string, opts?: { pg?: typeof PgModu
   };
 }
 
-async function openRegistry(env: Env, dataDir: string, opts?: { pg?: typeof PgModule; log?: (m: string) => void }): Promise<Registry> {
+// The database registry, retried at start like the khata store (DB_START_RETRY_MS). If it still cannot be reached, the
+// shops already in shops.registry.json can log in, but registering a NEW shop is refused (503) until the database is
+// back: a shop written only to the file is lost from the database and its owner is locked out after a restart (KAN-151).
+// A background retry (DB_RECONNECT_MS, default 60 s) copies any file rows into the database and switches over.
+async function openRegistry(env: Env, dataDir: string, opts?: { pg?: typeof PgModule; log?: (m: string) => void; delays?: number[]; reconnectMs?: number }): Promise<Registry> {
   if (!env.DATABASE_URL) return createFileRegistry(dataDir);
-  try { return await createPgRegistry(env.DATABASE_URL, opts); }
-  catch (e: any) { (opts && opts.log || console.log)('Shop registry: database not reachable (' + String(e && (e.code || e.name) || 'error') + '); using shops.registry.json'); return createFileRegistry(dataDir); }
+  const log = (opts && opts.log) || console.log;
+  const { delaysFrom } = require('./store') as typeof import('./store');
+  const delays: number[] = opts && opts.delays ? opts.delays : delaysFrom(env, {});
+  const why = (e: any) => String(e && (e.code || e.name) || 'error');
+  for (let i = 0; ; i++) {
+    try { return await createPgRegistry(env.DATABASE_URL, opts); }
+    catch (e: any) {
+      if (i >= delays.length) { log('Shop registry: database not reachable (' + why(e) + '); new shops are paused until it is back, retrying in the background'); break; }
+      log('Shop registry: database connect attempt ' + (i + 1) + ' failed (' + why(e) + '); retrying in ' + Math.round(delays[i] / 1000) + ' s');
+      await new Promise((r) => setTimeout(r, delays[i]));
+    }
+  }
+  const file = createFileRegistry(dataDir);
+  let cur: Registry | null = null, closed = false, timer: ReturnType<typeof setTimeout> | null = null;
+  const every = opts && opts.reconnectMs != null ? opts.reconnectMs : (env.DB_RECONNECT_MS != null ? +env.DB_RECONNECT_MS : 60000);
+  const reg: Registry & { reconnect(): Promise<boolean> } = {
+    get kind() { return cur ? cur.kind : 'file-fallback'; },
+    list: () => (cur || file).list(),
+    has: (id) => (cur || file).has(id),
+    byPhone: (p) => (cur || file).byPhone(p),
+    add(a) { return cur ? cur.add(a) : Promise.reject(Object.assign(new Error('database not reachable'), { code: 503 })); },
+    close() { closed = true; clearTimeout(timer!); return cur ? cur.close() : Promise.resolve(); },
+    async reconnect() {
+      if (cur) return true;
+      if (closed) return false;
+      try {
+        const db = await createPgRegistry(env.DATABASE_URL!, opts);
+        // shops registered on the file before this fix (or by an older build) go into the database too
+        for (const r of file.list()) if (!db.has(r.id) && !db.byPhone(r.phone)) await db.add(r).catch((e) => log('Shop registry: could not copy shop ' + r.id + ' (' + why(e) + ')'));
+        if (closed) { await db.close().catch(() => {}); return false; }
+        cur = db; log('Shop registry: database reachable again, now saving shops to the database');
+        return true;
+      } catch (e) { return false; }
+    }
+  };
+  const tick = () => {
+    if (closed || cur || !(every > 0)) return;
+    timer = setTimeout(() => { reg.reconnect().then((ok) => { if (!ok) tick(); }); }, every);
+    if (timer.unref) timer.unref();
+  };
+  tick();
+  return reg;
 }
 
 export { createFileRegistry, createPgRegistry, openRegistry, newShopId, validShopId };
