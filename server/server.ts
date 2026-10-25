@@ -31,6 +31,7 @@
 //   SESSION_DAYS, OWNER_MAX_FAILS, OWNER_LOCK_MIN   owner login: session length (7 days), wrong tries before a lock (5),
 //                          lock length in minutes (15). The first owner account needs ADMIN_KEY.
 //                          "reset", "next day" and "close day" are refused on a live shop for everyone (KAN-101, KAN-102)
+//   AI_TEST_MAX_CASES, AI_TEST_MAX_PER_HOUR  /test-run's AI-generated cases: cases per run (20) and runs per hour (6); see server/ai-test.ts
 //   UDHAAR_ENV_FILE        optional KEY=value file read once at startup (default /home/node/udhaar.env).
 //                          Agent37 cannot pass env vars to an instance, so keys go in this file instead.
 //                          A variable already set in the real environment wins over the file.
@@ -43,6 +44,7 @@ import C = require('../core/agent-core');
 import { createWhatsapp } from './whatsapp';
 import { createWebTransport } from './wa-web';
 import { createBrain } from './brain';
+import { createAiTest } from './ai-test';
 import { createFileStore, openStore } from './store';
 import { createAuth, createFileAuthStore, openAuthStore } from './auth';
 import type { AuthStore, Auth } from './auth';
@@ -143,6 +145,8 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
     llm: llm.enabled, model: llm.describe(),
     get lastError() { return llm.stats.lastError; }, get llmCalls() { return llm.stats.calls; }, get llmFallbacks() { return llm.stats.fallbacks; }
   };
+  // /test-run's AI-generated cases: the same model chain writes messages, the real pipeline reads them on a throwaway shop
+  const aiTest = createAiTest({ env, fetch: fetchImpl, today, now: opts.now });
 
   // What the page gets. The pay-link secret never leaves the server; on a live shop a public visitor also sees
   // customers' and wholesalers' numbers masked and no UPI ids (KAN-43).
@@ -211,7 +215,7 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
 
   // A small per-visitor rate limit for the routes that change the khata or spend AI calls. The page itself stays open
   // (it is a public demo); this only stops one visitor from hammering the shop. Local calls (no proxy) are not limited.
-  const limits: Record<string, number[]> = { '/api/act': [+env.ACT_LIMIT_PER_MIN! || 30, 60e3], '/api/auth/login': [10, 60e3], '/api/auth/setup': [5, 60e3] };
+  const limits: Record<string, number[]> = { '/api/act': [+env.ACT_LIMIT_PER_MIN! || 30, 60e3], '/api/ai-test': [3, 60e3], '/api/auth/login': [10, 60e3], '/api/auth/setup': [5, 60e3] };
   const hits = new Map<string, number[]>();
   const local = (req: http.IncomingMessage) => !req.headers['x-forwarded-for'] && /^(::1|127\.|::ffff:127\.)/.test(req.socket.remoteAddress || '');
   const sameKey = (a: unknown, b: unknown) => { const x = Buffer.from(String(a || '')), y = Buffer.from(String(b)); return x.length === y.length && (require('crypto') as typeof import('crypto')).timingSafeEqual(x, y); };
@@ -264,6 +268,13 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
       if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) return send(res, 200, pageHtml(), 'text/html; charset=utf-8');
       // the live test run: runs the cases in the visitor's browser on a throwaway demo shop; this shop's khata is never sent
       if (req.method === 'GET' && (url.pathname === '/test-run' || url.pathname === '/test-run.html')) return send(res, 200, fs.readFileSync(path.join(ROOT, 'dist/test-run.html'), 'utf8'), 'text/html; charset=utf-8');
+      if (req.method === 'GET' && url.pathname === '/api/ai-test') return send(res, 200, { enabled: aiTest.enabled, chain: aiTest.describe(), maxCases: aiTest.maxCases });
+      // never touches this shop's khata: every case runs on its own fresh demo shop (server/ai-test.ts)
+      if (req.method === 'POST' && url.pathname === '/api/ai-test') {
+        const j = await jsonBody(req);
+        if (!j.body) return send(res, j.code!, { error: j.error });
+        return send(res, 200, await aiTest.run(j.body.count));
+      }
       if (req.method === 'GET' && url.pathname === '/favicon.ico') { res.writeHead(204); return res.end(); }
       if (req.method === 'GET' && url.pathname === '/healthz') return send(res, 200, { ok: true, shop: shopId, llm: engine.llm, scheduler: env.REAL_CLOCK === '1', llmCalls: engine.llmCalls, llmFallbacks: engine.llmFallbacks, ai: llm.health(),
         owner: { store: authStore.kind, account: auth.hasOwner(), taxIdEncrypted: auth.encryptionOn() },

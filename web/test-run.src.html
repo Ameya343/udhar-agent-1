@@ -73,6 +73,17 @@ tr.cat { cursor: pointer; } tr.cat:hover td { background: var(--card-2); } tr.ca
 .empty { color: var(--text-3); padding: 18px 4px; }
 .toggle { display: flex; gap: 6px; align-items: center; color: var(--text-2); font-size: 13px; }
 footer { color: var(--text-3); font-size: 12.5px; margin-top: 26px; }
+.ai { margin-top: 28px; }
+.ai .head { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; }
+.ai .note { color: var(--text-2); margin: 4px 0 0; max-width: 720px; font-size: 13px; }
+.ai .status { margin: 12px 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text-2); font-size: 13px; }
+.ai .status.warn { border-color: rgba(245, 177, 76, .4); color: var(--amber); }
+.ai .status b { color: var(--text); }
+.ai .row { grid-template-columns: 34px 48px minmax(0, 1fr); }
+.ai .row .in { white-space: normal; }
+.ai .row .got { white-space: normal; }
+.ai .lbl { color: var(--amber); font-size: 12px; display: block; }
+.ai .kpis { margin: 14px 0; }
 @media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kpis .kpi:last-child { grid-column: span 2; } .stream { height: 340px; } }
 </style>
 </head>
@@ -91,7 +102,8 @@ footer { color: var(--text-3); font-size: 12.5px; margin-top: 26px; }
     </div>
   </header>
   <ul class="facts">
-    <li>Path tested: <b>rules parser</b> (no AI model is called)</li>
+    <li>Fixed cases: <b>rules parser</b> (no AI model is called)</li>
+    <li>AI-generated cases: <b>Agent37 model + rules</b>, on the server</li>
     <li>Shop: <b>fresh demo shop per case</b></li>
     <li>Cases: <b id="nCases">…</b> in <b id="nCats">…</b> groups</li>
     <li>Core build: <b>/*__BUILD__*/</b></li>
@@ -122,7 +134,30 @@ footer { color: var(--text-3); font-size: 12.5px; margin-top: 26px; }
     <div id="fails"><div class="empty">No run yet.</div></div>
   </section>
 
-  <footer>Same cases from the command line: <code>npm run build && node livetest/run.js --fails</code>. What this does not test: the AI model path, real WhatsApp delivery, Postgres storage and the voice input. Those have their own tests in <code>test/</code>.</footer>
+  <section class="ai" aria-labelledby="aiHead">
+    <div class="head">
+      <div>
+        <h2 id="aiHead">AI-generated cases (Agent37)</h2>
+        <p class="note">The shop's own model, through the Agent37 LLM router, writes a fresh batch of shopkeeper messages nobody has seen before. Each one then goes through the real owner pipeline (the AI reads it first, the rules check it, then the khata) on its own throwaway demo shop, on the server. Nobody wrote an expected answer, so each case is checked against fixed rules: no crash, a reply to the owner, old entries untouched unless it is a fix, nothing written on a message the model marked as a question or unclear, every amount written is a number in the message, every khata written to is named in the message, udhaar never written as jama. The model's other labels (the amount it meant, an entry it expected) are shown as <span style="color:var(--amber)">label</span> and not counted as failures: the same model writes and reads, so they are a second opinion, not ground truth. A wrong amount that is still a number in the message ("3200 me se 1000 diye" written as 3200) only shows up as a label.</p>
+      </div>
+      <div class="ctrl">
+        <select id="aiCount" aria-label="How many AI cases"><option value="5">5 cases</option><option value="10" selected>10 cases</option><option value="20">20 cases</option></select>
+        <button class="primary" id="aiRun" type="button">Ask Agent37 for new cases</button>
+        <button id="aiDl" type="button" disabled>Download</button>
+      </div>
+    </div>
+    <div class="status" id="aiStatus">Checking whether this instance has a model…</div>
+    <section class="kpis" aria-label="AI run totals">
+      <div class="kpi"><small>Cases written</small><b id="aRun">–</b></div>
+      <div class="kpi ok"><small>Passed</small><b id="aPass">–</b></div>
+      <div class="kpi bad"><small>Broke a rule</small><b id="aFail">–</b></div>
+      <div class="kpi"><small>Read by the AI</small><b id="aAi">–</b></div>
+      <div class="kpi"><small>Model calls / time</small><b id="aTime">–</b></div>
+    </section>
+    <div class="panel"><div id="aiList"><div class="empty">No AI run yet.</div></div></div>
+  </section>
+
+  <footer>Same cases from the command line: <code>npm run build && node livetest/run.js --fails</code>. The fixed cases do not test the AI model path (the AI-generated cases above do, when the instance has a model), real WhatsApp delivery, Postgres storage and the voice input. Those have their own tests in <code>test/</code>.</footer>
 </div>
 <script>
 /*__CORE__*/
@@ -198,6 +233,46 @@ footer { color: var(--text-3); font-size: 12.5px; margin-top: 26px; }
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'udhaar-test-run.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   });
   drawCats();
+
+  // AI-generated cases: the server asks the model (server/ai-test.ts); this page only shows the result
+  let aiOut = null, aiBlocked = false;
+  const aiStatus = (html, warn) => { $('aiStatus').innerHTML = html; $('aiStatus').className = 'status' + (warn ? ' warn' : ''); };
+  const offServer = 'This copy of the page is not served by a shop instance, so there is no model to ask. Open <b>/test-run</b> on the running shop (for example the Agent37 instance).';
+  fetch('/api/ai-test').then((r) => r.ok ? r.json() : Promise.reject(r.status)).then((j) => {
+    if (j.enabled) aiStatus('Model chain on this instance: <b>' + esc(j.chain) + '</b> → rules. Up to ' + j.maxCases + ' cases per run, a few runs per hour (they spend the shop\'s model credits).');
+    else { aiStatus('No model on this instance: <b>AGENT37_LLM_PROXY_URL</b> and <b>LLM_BASE_URL</b> are unset, so the AI cannot write cases here. The fixed cases above still run.', true); aiBlocked = $('aiRun').disabled = true; }
+  }, () => { aiStatus(offServer, true); aiBlocked = $('aiRun').disabled = true; });
+  function aiRow(r) {
+    const why = r.why.length ? '<span class="got" style="color:var(--red-t)">✗ ' + esc(r.why.join('; ')) + '</span>' : '';
+    const lbl = r.labelWhy.length ? '<span class="lbl">label: ' + esc(r.labelWhy.join('; ')) + '</span>' : '';
+    return '<div class="row"><span class="id">' + r.id + '</span><span class="chip ' + (r.pass ? 'p">PASS' : 'f">FAIL') + '</span><span class="in">' + esc(r.text) +
+      '<span class="got">model label: ' + esc(r.label.kind) + (r.label.name ? ', ' + esc(r.label.name) : '') + (r.label.amount != null ? ', ₹' + esc(r.label.amount) : '') + '</span>' +
+      '<span class="got">→ ' + esc(r.wrote) + (r.asked ? ' (agent asked a question)' : '') + ' · read by ' + esc(r.readBy) + (r.ms != null ? ' in ' + r.ms + ' ms' : '') + (r.intent ? ' as ' + esc(r.intent) : '') + '</span>' +
+      (r.reply ? '<span class="got">agent: ' + esc(r.reply) + '</span>' : '') + why + lbl + '</span></div>';
+  }
+  $('aiRun').addEventListener('click', () => {
+    $('aiRun').disabled = true; $('aiDl').disabled = true; $('aiRun').textContent = 'Agent37 is writing cases…';
+    $('aiList').innerHTML = '<div class="empty">Waiting for the model. Each case is one more model call, so 10 cases take about 10 to 40 seconds.</div>';
+    fetch('/api/ai-test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ count: +$('aiCount').value }) })
+      .then((r) => r.json().then((j) => (r.ok ? j : { ok: false, reason: j.error || ('HTTP ' + r.status) })))
+      .then((j) => {
+        if (!j.ok) { aiStatus(esc(j.reason || 'The run failed.'), true); $('aiList').innerHTML = '<div class="empty">No cases this time.</div>'; return; }
+        aiOut = j;
+        aiStatus('Cases written by <b>' + esc(j.generator.via) + '</b>, model <b>' + esc(j.generator.model) + '</b>, in ' + (j.generator.ms / 1000).toFixed(1) + ' s (' + j.generator.got + ' of ' + j.generator.asked + ' asked for were usable). ' +
+          (j.labelDisagree ? j.labelDisagree + ' case' + (j.labelDisagree > 1 ? 's' : '') + ' disagree with the model\'s own label (shown, not counted).' : 'No disagreement with the model\'s labels.'));
+        $('aRun').textContent = j.results.length; $('aPass').textContent = j.pass; $('aFail').textContent = j.fail;
+        $('aAi').textContent = j.aiRead + '/' + j.results.length; $('aTime').textContent = j.calls + ' · ' + (j.ms / 1000).toFixed(1) + ' s';
+        const fails = j.results.filter((r) => !r.pass), rest = j.results.filter((r) => r.pass);
+        $('aiList').innerHTML = fails.concat(rest).map(aiRow).join('');
+        $('aiDl').disabled = false;
+      }, () => { aiStatus(offServer, true); aiBlocked = true; $('aiList').innerHTML = '<div class="empty">No cases this time.</div>'; })
+      .then(() => { $('aiRun').disabled = aiBlocked; $('aiRun').textContent = 'Ask Agent37 again'; });
+  });
+  $('aiDl').addEventListener('click', () => {
+    if (!aiOut) return;
+    const blob = new Blob([JSON.stringify(Object.assign({ build: '/*__BUILD__*/', path: 'AI-generated cases, real owner pipeline (AI first, rules), throwaway shop' }, aiOut), null, 1)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'udhaar-ai-test-run.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
 })();
 </script>
 </body>

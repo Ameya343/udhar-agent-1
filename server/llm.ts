@@ -16,7 +16,7 @@
 type Env = Record<string, string | undefined>;
 export type ChatMessage = { role: string; content: string };
 /** Options for one chatJson call. validate gets the model's parsed JSON (any shape) and returns the cleaned value or throws. */
-export interface ChatOpts<T = unknown> { timeoutMs?: number; maxTokens?: number; model?: string; json?: boolean; validate?: (j: any) => T }
+export interface ChatOpts<T = unknown> { timeoutMs?: number; maxTokens?: number; model?: string; json?: boolean; temperature?: number; validate?: (j: any) => T }
 export interface ChatResult<T = unknown> { value: T; provider: string; model: string; ms: number }
 interface ProviderStats { calls: number; ok: number; failed: number; lastError: string | null; lastMs: number | null }
 interface Provider { name: string; url: string; model: string | null; key: () => string; timeoutMs: number; stats?: ProviderStats; down?: number; skipUntil?: number }
@@ -72,7 +72,7 @@ function createLlm(opts: LlmOpts) {
       const headers: Record<string, string> = { 'content-type': 'application/json' };
       const k = p.key();
       if (k) headers.authorization = 'Bearer ' + k;
-      const body: { temperature: number; max_tokens: number; messages: ChatMessage[]; model?: string | null; response_format?: { type: string } } = { temperature: 0, max_tokens: o.maxTokens || 400, messages };
+      const body: { temperature: number; max_tokens: number; messages: ChatMessage[]; model?: string | null; response_format?: { type: string } } = { temperature: o.temperature || 0, max_tokens: o.maxTokens || 400, messages };
       if (o.model || p.model) body.model = o.model || p.model;
       if (env.LLM_JSON_MODE === '1' && o.json !== false) body.response_format = { type: 'json_object' };
       const res = await fetchImpl(p.url + '/chat/completions', { method: 'POST', headers, signal: ctrl.signal, body: JSON.stringify(body) });
