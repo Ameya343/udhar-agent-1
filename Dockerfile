@@ -12,6 +12,8 @@ COPY server ./server
 COPY db ./db
 COPY scripts ./scripts
 COPY build.js ./
+# the hand-written cases and runner for the live test-run page (/test-run)
+COPY livetest ./livetest
 # TypeScript (core, server, scripts) -> dist-server/, then the page with the compiled core inlined -> dist/
 RUN npx tsc -p tsconfig.json
 RUN node build.js

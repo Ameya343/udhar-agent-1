@@ -262,6 +262,8 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
       if (req.method === 'HEAD' && (url.pathname === '/' || url.pathname === '/healthz')) { res.writeHead(200, { 'cache-control': 'no-store' }); return res.end(); }
       if (req.method === 'POST' && limits[url.pathname] && limited(req, url.pathname)) return send(res, 429, { error: 'too many requests, try again in a minute' });
       if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) return send(res, 200, pageHtml(), 'text/html; charset=utf-8');
+      // the live test run: runs the cases in the visitor's browser on a throwaway demo shop; this shop's khata is never sent
+      if (req.method === 'GET' && (url.pathname === '/test-run' || url.pathname === '/test-run.html')) return send(res, 200, fs.readFileSync(path.join(ROOT, 'dist/test-run.html'), 'utf8'), 'text/html; charset=utf-8');
       if (req.method === 'GET' && url.pathname === '/favicon.ico') { res.writeHead(204); return res.end(); }
       if (req.method === 'GET' && url.pathname === '/healthz') return send(res, 200, { ok: true, shop: shopId, llm: engine.llm, scheduler: env.REAL_CLOCK === '1', llmCalls: engine.llmCalls, llmFallbacks: engine.llmFallbacks, ai: llm.health(),
         owner: { store: authStore.kind, account: auth.hasOwner(), taxIdEncrypted: auth.encryptionOn() },

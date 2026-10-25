@@ -290,11 +290,14 @@ for (let i = 0; i < 380; i++) {
   } else {
     const id = pick(KIDS.filter((k) => cust(s, k).phone)); const [a, as] = amt();
     const said = pick(['maine {a} cash de diye', 'bhaiya {a} de diye the kal', 'मैंने {a} दे दिए', '{a} cash diya hai', 'maine {a} gpay kar diya']).replace('{a}', as);
+    const owed = Math.round(C.balance(s, id));
     const r = step(s, id, said);
     const k = (s.cashClaims || []).filter((x) => x.status === 'pending' && x.custId === id).pop();
+    // more cash than the baaki is asked back to the customer first, never noted as said
+    const overAsked = !/gpay/.test(said) && a > owed && r.msgs.some((x) => x.to === id && x.kind === 'cash-ask');
     // a UPI claim (gpay) is not a cash claim: the owner is told the amount and the UPI SMS settles it
     const upiNoted = /gpay/.test(said) && !k && r.msgs.some((x) => x.to === 'owner' && x.text.includes(C.rupees ? C.rupees(a) : String(a)) && /pay kar diya/.test(x.text));
-    expect(r, upiNoted || (!!k && k.amount === a), 'medium', 'cash-claim-not-noted', k ? 'claim ' + k.amount : 'no claim | ' + r.msgs.map((x) => x.text.slice(0, 50)).join(' | '), 'pending claim ' + a);
+    expect(r, upiNoted || overAsked || (!!k && k.amount === a), 'medium', 'cash-claim-not-noted', k ? 'claim ' + k.amount : 'no claim | ' + r.msgs.map((x) => x.text.slice(0, 50)).join(' | '), 'pending claim ' + a);
     done(r);
     if (k) { const ok = rnd() < 0.6; const b0 = C.balance(s, id); const r2 = step(s, 'act', 'confirm', { claimId: k.id, ok });
       expect(r2, ok ? C.balance(s, id) === b0 - a : C.balance(s, id) === b0, 'critical', 'claim-confirm-wrong', 'bal ' + b0 + '->' + C.balance(s, id), ok ? 'minus ' + a : 'unchanged'); done(r2); }

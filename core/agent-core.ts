@@ -11,7 +11,7 @@ import type {
   State, Shop, Customer, Txn, PayChoice, TxnType, Line, RawLine, LineParse, Message, MessageMeta, CashClaim, Price, Supply, SupplierPay,
   Wholesaler, WsLine, WsOrder, WsGroup, Order, OwnerAsk, Consent, UpiInfo, Pending, OwnerIntent, ListIntent, FixIntent, Person,
   SwapIntent, MultiPair, MultiIntent, ItemRemoveIntent, ListEdit, HandledIntent, OwnerResult, CustomerIntent, SupplierParse,
-  WholesaleParse, ActionArgs, Tokens, UnderstoodItem, IsoDate, LogEntry, Vouch
+  WholesaleParse, ActionArgs, Tokens, UnderstoodItem, IsoDate, LogEntry, Vouch, MakeSupplier
 } from './types';
 
 // In the browser this module is wrapped by build.js and exposed as window.UdhaarCore; in Node it is require()d.
@@ -1737,7 +1737,7 @@ function factory() {
     const bal = Math.max(0, Math.round(balance(state, custId)));
     const no = (error: PayChoice['error'], amount: number | null = null): PayChoice => ({ ok: false, amount, balance: bal, full: false, extra: amount && amount > bal ? amount - bal : 0, error });
     if (bal <= 0) return no('none-due');
-    const s = raw == null ? '' : String(raw).replace(/[₹,\s]/g, '').replace(/^(rs\.?|inr)/i, '').replace(/\/-$/, '');
+    const s = raw == null ? '' : String(raw).replace(/[०-९]/g, (d) => String(d.charCodeAt(0) - 0x966)).replace(/[₹,\s]/g, '').replace(/^(rs\.?|inr)/i, '').replace(/\/-$/, '');
     if (!s) return { ok: true, amount: bal, balance: bal, full: true, extra: 0 };
     const m = /^(\d{1,9})(?:\.(\d{1,2}))?$/.exec(s);
     if (!m) return no('not-number');
@@ -2181,6 +2181,93 @@ function factory() {
       const left = supEntries(state, sp.key!).reduce((a, x) => a + supOwed(x), 0);
       reply('✅ ' + sp.name + ' ko ' + rupees(sp.amount!) + ' diye. ' + (left ? 'Ab bhi dena hai: ' + rupees(left) + '.' : 'Inka hisaab clear.') + (rest! > 0 ? ' (' + rupees(rest!) + ' zyada diye, advance)' : '') + '\n' + weekLine(state));
     }
+  }
+  // "Ramesh ko supplier banao 98xxxxxxxx, wo doodh aur bread deta hai", "Ramesh supplier hai, doodh supply karta hai",
+  // "रमेश को सप्लायर बना दो": any name becomes a wholesaler (no trade word needed), with a number and items if given.
+  const MAKE_SUP_WORD = '(supplier|suppliers|suplier|supliar|saplayar|sapplayar|saplayer|suppliar|wholesaler|wholesale|holsel|holselar|vikreta)';
+  const MAKE_SUP_RX = new RegExp('\\s' + MAKE_SUP_WORD + '\\s(banao|bana do|banado|bana dijiye|bana dena|banaiye|banana hai|bana|bnao|bna do|hai|he|h|hain|hai na)\\s');
+  const SUPPLY_VERB = /\s(supply|suply|saplai|sapplai|supplai)\s(karta|karata|karti|karte|karega|karenge|deta|deti|dete)\s/;
+  const MAKE_SUP_FILLER = new Set(('supplier suppliers suplier supliar saplayar sapplayar saplayer suppliar wholesaler wholesale holsel holselar vikreta banao bana banado banadijiye dijiye dena banaiye banana bnao bna ' +
+    'supply suply saplai sapplai supplai karta karata karti karte karega karenge deta deti dete dega denge vo wo voh woh ye yeh hai hain he product products saman saaman maal mal item items sirf only bhi ' +
+    'number nambar mobile phone fon whatsapp uska unka iska inka liye ke ka ki ko se aur and sath unse inse humko hamko hame hamen naya nayi new').split(' ').map(normWord));
+  function makeSupplierIntent(state: State, text: string): MakeSupplier | null {
+    const raw = String(text || ''), tok = tokenize(raw), t = both(raw, tok), n = tok.norm;
+    if (!MAKE_SUP_RX.test(t) && !(SUPPLY_VERB.test(t) && n.some((w) => new RegExp('^' + MAKE_SUP_WORD + '$').test(w)))) return null;
+    if (/\s(hata|hatao|hata do|remove|delete|nahi hai|nahin hai|mat banao|nahi banana)\s/.test(t)) return null;
+    // the name: the words before "ko" / the supplier word, at most three, no numbers
+    const end = n.findIndex((w) => w === 'ko' || new RegExp('^' + MAKE_SUP_WORD + '$').test(w));
+    if (end <= 0 || end > 4) return null;
+    const words: number[] = [];
+    for (let i = 0; i < end; i++) { if (!/^[a-z]{2,}$/.test(n[i]) || ['mera', 'meri', 'naya', 'nayi', 'ek', 'yeh', 'ye', 'is', 'isko'].indexOf(n[i]) >= 0) { if (words.length) return null; continue; } words.push(i); }
+    const core = words.filter((i) => !HONORIFICS.has(n[i]));
+    if (!core.length) return null;
+    const name = core.map((i) => cap(tok.display[i].toLowerCase())).join(' ');
+    const pm = /(?:^|[^\d])(?:\+?\s*91[\s-]*|0)?([6-9](?:[\s-]?\d){9})(?!\d)/.exec(raw);
+    const phone = (pm && pm[1].replace(/\D/g, '')) || (/\b([6-9]\d{9})\b/.exec(n.join(' ')) || [])[1] || null;
+    const items: string[] = [];
+    for (let i = end; i < n.length; i++) {
+      const w = n[i];
+      if (MAKE_SUP_FILLER.has(w) || WS_FILLER.has(w) || WS_GENERIC.has(w) || !isItemWord(w) || core.indexOf(i) >= 0) continue;
+      const it = tok.display[i].toLowerCase();
+      if (!items.some((x) => itemKey(x) === itemKey(it))) items.push(it);
+    }
+    const key = nameKey(core.map((i) => n[i]));
+    const cs = findCustomers(state, key).filter((c) => !c.removed);
+    const cust = cs.find((c) => c.key === key || (c.aliases || []).includes(key)) || null; // exactly that name: "Mohan" is never Rohan
+    const ms: MakeSupplier = { name, key, phone, items };
+    if (cust) { ms.custId = cust.id; ms.name = cust.name.split(' ').filter((w) => !HONORIFICS.has(normWord(w.toLowerCase()))).join(' ') || name; }
+    return ms;
+  }
+  /** Make (or update) the wholesaler. A customer of that name with entries is converted only after the owner's haan. */
+  function applyMakeSupplier(state: State, ms: MakeSupplier, out: Message[], confirmed?: boolean): Message[] {
+    const say = (t: string, kind?: string) => emit(state, out, 'owner', t, { kind: kind || 'ws-set' });
+    const c = ms.custId ? getCust(state, ms.custId) : null;
+    let note = '';
+    if (c && !c.removed) {
+      const entries = state.txns.filter((x) => x.custId === c.id && !x.voided);
+      if (entries.length && !confirmed) {
+        state.pending = { type: 'confirm', what: 'make-supplier', options: [], custId: c.id, supplier: ms };
+        const bal = Math.round(balance(state, c.id));
+        say('🤔 ' + c.name + ' aapke grahak hain: khate mein ' + entries.length + ' entry, baaki ' + balText(bal) + '. Inhe supplier banaun?' +
+          '\nGrahak wala khata waisa hi rahega (kuch nahi mitega); ' + (ms.phone || c.phone ? 'unke number ke WhatsApp message ab supplier ke taur par aayenge.' : 'number abhi nahi hai.') + '\nJawab: *haan* ya *nahi*', 'confirm-ask');
+        return out;
+      }
+      if (!entries.length) {
+        // no entries: the khata was only a name (often a number that wrote in), so it becomes the wholesaler
+        state.customers = state.customers.filter((x) => x !== c);
+        state.ownerAsks = ownerAsks(state).filter((a) => a.custId !== c.id);
+        note = '\n(' + c.name + ' grahak ki list se hata kar supplier bana diya; unka koi udhaar nahi tha.)';
+      } else note = '\n(' + c.name + ' ka grahak khata waisa hi hai.)';
+    }
+    const phone = ms.phone || (c && c.phone) || null;
+    let w = wholesalers(state).find((x) => sameSup(x.key, itemKey(ms.name)));
+    const isNew = !w;
+    if (!w) w = addWholesaler(state, ms.name, []);
+    let phoneNote = '';
+    if (phone && w.phone !== phone) {
+      const other = wholesalers(state).find((x) => x !== w && x.phone === phone);
+      const cc = state.customers.find((x) => x.phone === phone && !x.removed && x !== c);
+      const why = phone === state.ownerPhone ? 'aapka apna (dukaandaar ka) number hai' : other ? other.name + ' ka number hai' : cc && !cc.guest ? cc.name + ' (grahak) ka number hai' : '';
+      if (why) phoneNote = '\n⚠️ +91 ' + phone + ' ' + why + ', isliye save nahi kiya. Sahi number bhejiye, jaise "' + w.name + ' ka number 98xxxxxxxx".';
+      else {
+        if (cc && cc.guest && !state.txns.some((x) => x.custId === cc.id)) { state.customers = state.customers.filter((x) => x !== cc); state.ownerAsks = ownerAsks(state).filter((a) => !(a.type === 'guest' && a.custId === cc.id)); }
+        const from = c && c.phone === phone ? c : cc;
+        w.phone = phone; w.wa = !!(from && from.wa) || false;
+        if (from && from.waTo) w.waTo = from.waTo;
+      }
+    }
+    for (const it of ms.items) {
+      const k = itemKey(it);
+      for (const o of wholesalers(state)) if (o !== w) o.items = o.items.filter((x) => itemKey(x) !== k); // one item, one wholesaler
+      if (!w.items.some((x) => itemKey(x) === k)) w.items.push(it);
+    }
+    log(state, 'wholesale', (isNew ? 'New supplier ' : 'Supplier updated ') + w.name + (w.phone ? ' +91 ' + w.phone : '') + (ms.items.length ? ' (' + ms.items.join(', ') + ')' : ''));
+    say('✅ ' + w.name + (isNew ? ' ab aapke supplier hain.' : ' pehle se supplier hain, update kar diya.') +
+      '\n📇 Number: ' + (w.phone ? '+91 ' + w.phone : 'nahi hai. Bhejiye, jaise "' + w.name + ' ka number 98xxxxxxxx"') +
+      '\n📦 Saaman: ' + (w.items.length ? w.items.map(itemName).join(', ') + ' (ab inhi se)' : 'abhi nahi likha. Batayiye, jaise "doodh aur bread ' + w.name + ' se aata hai"') +
+      (w.items.length ? '\nOrder ke liye: "' + w.items[0] + ' 10 packet mangwa do"' : '') +
+      (w.phone && !w.wa ? '\nUnse ek baar dukaan ke number par "hi" bhejne boliye, tabhi order WhatsApp par jayega.' : '') + phoneNote + note);
+    return out;
   }
   /**
    * The week ahead: what the shop owes suppliers by then, what customers are likely to pay by then (their baaki
@@ -2626,6 +2713,8 @@ function factory() {
     const out: Message[] = [];
     const reply = (text: string, meta?: MessageMeta) => emit(state, out, 'owner', text, meta);
     if (p.what === 'upi-claim') return out.concat(confirmCash(state, p.claimId!, yes));
+    if (p.what === 'make-supplier' && !yes) { reply('👍 Theek hai, ' + p.supplier!.name + ' grahak hi rahenge. Kuch nahi badla.'); return out; }
+    if (p.what === 'make-supplier') return applyMakeSupplier(state, p.supplier!, out, true);
     if (!yes) { reply('👍 Theek hai, kuch nahi likha, kuch nahi badla.'); return out; }
     if (p.what === 'new-cust') {
       const a = Object.assign({}, p.action, { confirmed: true, bigOk: true });
@@ -2740,6 +2829,9 @@ function factory() {
     const AI_NOT_KHATA = ['balance', 'summary', 'remind', 'remind_all', 'help', 'chitchat', 'set_phone', 'add_customer', 'week', 'supplier', 'wholesale'];
     const aiKhata = !aiRead || AI_NOT_KHATA.indexOf(aiRead) < 0;
     if (!state.pending) {
+      // "Ramesh ko supplier banao 98xxxxxxxx, wo doodh aur bread deta hai": any name, no trade word needed
+      const ms = aiAllows('wholesale', 'supplier', 'add_customer', 'set_phone', 'unknown') && makeSupplierIntent(state, text);
+      if (ms) { const out = applyMakeSupplier(state, ms, []); pruneAsks(state); askAlong(state, out); return { intent: { intent: 'make_supplier', name: ms.name } as HandledIntent, messages: dedupe(out) }; }
       // "Krish ki list mein 2 Maggi jod do" / "... se doodh hata do" / "... aata 90 ka tha" / "Krish ki list badlo: ..."
       const ed = aiAllows('list_edit', 'list', 'udhaar', 'jama', 'undo', 'unknown') && (listEditIntent(state, text) || (canon && listEditIntent(state, canon)));
       if (ed) {
@@ -3330,6 +3422,33 @@ function factory() {
     return o.lines.map((l) => '  • ' + itemName(l.name) + (qtyText(l) ? ' ' + qtyText(l) : '') + (l.price != null ? ' = ' + rupees(l.price) : forOwner ? ' (daam?)' : ' (daam dukaan par)')).join('\n') +
       '\n  Jod: ' + rupees(o.amount) + (missingRate(o) ? ' + jinka daam nahi pata' : '');
   }
+  /**
+   * The bill a customer gets the moment they order: every line priced from the shop's rate memory as qty × rate,
+   * and a line with no saved rate marked for the shopkeeper to price ("Maggi ×2 — daam dukaandaar batayenge").
+   */
+  function custBill(o: Order): string {
+    const one = (l: Line): string => {
+      const head = '  • ' + itemName(l.name);
+      if (l.price == null) return head + (qtyText(l) ? ' ' + qtyText(l) : '') + ' — daam dukaandaar batayenge';
+      const base = l.rateUnit != null ? l.rateUnit : baseOf(l.unit)[0];
+      const many = l.unit ? true : (l.qty || 1) > 1;
+      if (l.rate != null && many) return head + ' ' + (l.unit ? qtyText(l) : l.qty) + ' × ' + rateText(l.rate, l.unit ? base : '') + ' = ' + rupees(l.price);
+      return head + (qtyText(l) ? ' ' + qtyText(l) : '') + ' = ' + rupees(l.price);
+    };
+    return '🧾 Bill:\n' + o.lines.map(one).join('\n') + '\n  Kul: ' + (!missingRate(o) ? rupees(o.amount) : o.amount > 0 ? rupees(o.amount) + ' + baaki ka daam dukaandaar batayenge' : 'daam dukaandaar batayenge');
+  }
+  /** "Maggi ka daam? (jaise 'maggi 14')": the owner prices the first item of an order that has no saved rate. */
+  const orderRateAskText = (state: State, o: Order): string => {
+    const l = missingRate(o)!, c = getCust(state, o.custId), nm = itemName(l.name);
+    return '🛒 ' + c.name + ' ka order (bill bhej diya):\n' + orderText(o, true) + '\n' + nm + ' ka daam? (jaise \'' + nm.toLowerCase() + ' 14\')' +
+      (l.unit ? ' — ek ' + (UNIT_SAY[baseOf(l.unit)[0]] || baseOf(l.unit)[0]) + ' ka' : '') + '. Nahi hai toh "' + nm.toLowerCase() + ' nahi hai".';
+  };
+  /** An order that still has an unpriced item gets its rate question at the head of the owner's questions, at once. */
+  function askOrderRate(state: State, o: Order, out: Message[]): void {
+    if (!missingRate(o) || ownerAsks(state).some((a) => a.type === 'order-rate' && a.orderId === o.id)) return;
+    ownerAsks(state).unshift({ type: 'order-rate', orderId: o.id });
+    emit(state, out, 'owner', orderRateAskText(state, o), { kind: 'owner-ask' });
+  }
   /** The owner's open questions (new numbers, orders), oldest first; the first is what "ok" / "nahi" answers. */
   const ownerAsks = (state: State): OwnerAsk[] => (state.ownerAsks = state.ownerAsks || []);
   /** Drop questions that no longer need an answer: a number whose khata the owner opened by writing udhaar, an order already settled. */
@@ -3342,6 +3461,7 @@ function factory() {
     const wo = (id: string | undefined): Partial<WsOrder> => wsOrders(state).find((o) => o.id === id) || {};
     state.ownerAsks = ownerAsks(state).filter((a) => a.type === 'ws-order' ? a.orderIds!.some((id) => wo(id).status === 'draft')
       : a.type === 'ws-bill' ? !wo(a.orderId).supplyId && ['sent', 'unsent'].indexOf(wo(a.orderId).status!) >= 0
+        : a.type === 'order-rate' ? (() => { const o = orders(state).find((x) => x.id === a.orderId); return !!o && o.status === 'ask' && !!missingRate(o); })()
         : a.type === 'rejoin' ? (getCust(state, a.custId) || {} as Partial<Customer>).removed
         : a.type === 'guest' || a.type === 'vouch' ? (getCust(state, a.custId) || {} as Partial<Customer>).guest : (orders(state).find((o) => o.id === a.orderId) || {} as Partial<Order>).status === 'owner');
   }
@@ -3360,6 +3480,7 @@ function factory() {
   function askText(state: State, a: OwnerAsk): string {
     const more = ownerAsks(state).length > 1 ? '\n(' + (ownerAsks(state).length - 1) + ' aur baaki)' : '';
     if (a.type === 'ws-order') return wsDraftText(state, a.orderIds!) + more;
+    if (a.type === 'order-rate') return orderRateAskText(state, orders(state).find((x) => x.id === a.orderId)!) + more;
     if (a.type === 'ws-bill') { const o = wsOrders(state).find((x) => x.id === a.orderId)!; return '📦 Maal aane par ' + o.name + ' ka ' + rupees(o.bill!) + ' udhaar likhun? *ok* ya *nahi*\n(Ya maal aane par likhiye "maal aa gaya" / "maal aa gaya, ' + o.bill + ' cash de diya")' + more; }
     if (a.type === 'vouch') { const c = getCust(state, a.custId), v = getCust(state, c.vouch!.by); return '🤝 ' + v.name + ' (aapke grahak, ' + customerScore(state, v.id).label + ') kehte hain woh ' + c.name + ' (+91 ' + c.phone + ') ko jaante hain.\nInka khata ' + rupees(VOUCH.start) + ' ki seema se kholein? Har time par chukane par seema ' + rupees(VOUCH.step) + ' badhegi, ' + rupees(VOUCH.cap) + ' tak.\nJawab: *ok* ya *nahi*' + more; }
     if (a.type === 'rejoin') { const c = getCust(state, a.custId); return '📱 ' + c.name + ' (' + String(c.phone || '').slice(-4) + ') ne hi bheja. Khata kholun? *ok* ya *nahi*\n(Inhe pehle hataya gaya tha.)' + more; }
@@ -3375,7 +3496,12 @@ function factory() {
     const a = ownerAsks(state).shift();
     if (!a) return out;
     if (a.type === 'ws-order') answerWsOrder(state, a, yes, out);
-    else if (a.type === 'ws-bill') {
+    else if (a.type === 'order-rate') {
+      // "ok" leaves the item for later (the customer's bill already says the shopkeeper will price it); "nahi" drops it
+      const o = orders(state).find((x) => x.id === a.orderId)!, l = missingRate(o)!;
+      if (yes) emit(state, out, 'owner', '👍 Theek hai, ' + itemName(l.name) + ' ka daam baad mein. Order pakka karte waqt poochunga.');
+      else { ownerAsks(state).unshift(a); return applyOrderRate(state, { o, l, drop: true }); }
+    } else if (a.type === 'ws-bill') {
       const o = wsOrders(state).find((x) => x.id === a.orderId)!, w = getWs(state, o.wsId);
       if (yes && w) wsArrived(state, o, w, o.bill!, false, out);
       else emit(state, out, 'owner', 'Theek hai, abhi kuch nahi likha. Maal aane par likhiye "' + o.name + ' ka maal aa gaya, ' + o.bill + ' udhaar".');
@@ -3437,20 +3563,23 @@ function factory() {
     const sent = 'Order dukaan ko bhej diya' + (missingRate(o) ? ', rate dukaan batayegi.' : ', pakka karte hi yahin bata denge.') + ' 🙏';
     if (!c.guest && o.mode !== 'cash' && lim != null && Math.max(0, balance(state, c.id)) + amount > lim) {
       o.status = 'owner'; o.mode = 'cash';
-      emit(state, out, c.id, '🛒 Order mila:\n' + orderText(o) + '\nAapki udhaar seema ' + rupees(lim) + ' hai (abhi baaki ' + rupees(Math.max(0, balance(state, c.id))) + '), isliye yeh order cash par. Time par chukane se seema badhti hai. 🙏');
+      emit(state, out, c.id, '🛒 Order mila.\n' + custBill(o) + '\nAapki udhaar seema ' + rupees(lim) + ' hai (abhi baaki ' + rupees(Math.max(0, balance(state, c.id))) + '), isliye yeh order cash par. Time par chukane se seema badhti hai. 🙏');
       askOwner(state, out, { type: 'order', orderId: o.id });
       return out;
     }
     if (prev) {
-      emit(state, out, c.id, '➕ Pichhle order mein jod rahe hain (' + (o.mode === 'udhaar' ? 'udhaar par' : 'cash par') + '):\n' + orderText(o) + '\n' + sent, { kind: 'order-added', orderId: o.id });
+      emit(state, out, c.id, '➕ Pichhle order mein jod rahe hain (' + (o.mode === 'udhaar' ? 'udhaar par' : 'cash par') + '):\n' + custBill(o) + '\n' + sent, { kind: 'order-added', orderId: o.id });
       askOwner(state, out, { type: 'order', orderId: o.id });
     } else if (c.guest) {
-      emit(state, out, c.id, '🛒 Order mila:\n' + orderText(o) + '\nCash par ready karenge. ' + sent);
+      emit(state, out, c.id, '🛒 Order mila.\n' + custBill(o) + '\nCash par ready karenge. ' + sent);
       askOwner(state, out, { type: 'order', orderId: o.id });
-    } else emit(state, out, c.id, '🛒 Order mila:\n' + orderText(o) + rateNote(o) + '\nUdhaar mein likhein? *Haan* (khate mein) ya *Nahi* (cash denge)', { kind: 'order-ask', orderId: o.id });
+    } else {
+      emit(state, out, c.id, '🛒 Order mila.\n' + custBill(o) + rateNote(o) + '\nUdhaar mein likhein? *Haan* (khate mein) ya *Nahi* (cash denge)', { kind: 'order-ask', orderId: o.id });
+      askOrderRate(state, o, out); // a new item: the owner is asked its rate now, the customer gets the full bill after
+    }
     return out;
   }
-  const rateNote = (o: Order): string => (missingRate(o) ? '\nJinka rate nahi likha, woh dukaan batayegi.' : '');
+  const rateNote = (o: Order): string => (missingRate(o) ? '\nDaam aate hi poora bill yahin bhej denge.' : '');
   /** A customer's order: added to their open order of today, a new order linked to today's last one ("... bhi add karo"), or a new one. */
   function takeOrder(state: State, c: Customer, co: { lines: Line[]; add?: boolean }, out: Message[]): Message[] {
     const mine = orders(state).filter((o) => o.custId === c.id && o.date === state.today);
@@ -3475,7 +3604,8 @@ function factory() {
     const what = added.map((l) => itemName(l.name) + (qtyText(l) ? ' ' + qtyText(l) : '')).join(', ');
     log(state, 'order', c.name + ' added ' + what + ' to ' + o.id);
     if (o.status === 'ask') {
-      emit(state, out, c.id, '➕ ' + what + ' jod diya.\n🛒 Order ab:\n' + orderText(o) + rateNote(o) + '\nUdhaar mein likhein? *Haan* (khate mein) ya *Nahi* (cash denge)', { kind: 'order-ask', orderId: o.id });
+      emit(state, out, c.id, '➕ ' + what + ' jod diya. Order ab:\n' + custBill(o) + rateNote(o) + '\nUdhaar mein likhein? *Haan* (khate mein) ya *Nahi* (cash denge)', { kind: 'order-ask', orderId: o.id });
+      askOrderRate(state, o, out);
       return out;
     }
     emit(state, out, c.id, '➕ ' + what + ' aapke order mein jod diya. Order dukaan ko bhej diya' + (added.some((l) => l.price == null) ? ', rate dukaan batayegi.' : '.') + ' 🙏', { kind: 'order-added', orderId: o.id });
@@ -3491,7 +3621,7 @@ function factory() {
   const NOT_IN_STOCK = /\s(chhodo|chodo|hata do|hatao|hata dena|rehne do|rahne do|skip|nahi hai|nahin hai|nhi hai|nahi he|khatam hai|stock nahi|stock me nahi|nahi milega|nahi milta|nahi rakhte)\s/;
   function orderRateAnswer(state: State, text: string): { o: Order; l: Line; drop?: boolean; v?: number } | null {
     const a = ownerAsks(state)[0];
-    if (!a || a.type !== 'order' || state.pending) return null;
+    if (!a || (a.type !== 'order' && a.type !== 'order-rate') || state.pending) return null;
     const o = orders(state).find((x) => x.id === a.orderId), l = o && missingRate(o);
     if (!l) return null;
     const tok = tokenize(cleanTranscript(text));
@@ -3507,11 +3637,22 @@ function factory() {
       if (!o.lines.length) { ownerAsks(state).shift(); o.status = 'rejected'; emit(state, out, 'owner', '👍 ' + itemName(l.name) + ' hata diya. ' + c.name + ' ke order mein aur kuch nahi tha.'); if (ownerAsks(state).length) emit(state, out, 'owner', askText(state, ownerAsks(state)[0]), { kind: 'owner-ask' }); return out; }
     } else {
       l.price = Math.round(r.v! * (l.unit ? l.qty! * baseOf(l.unit)[1] : (l.qty || 1))); l.from = 'spoken';
-      const notes = learnRates(state, [l]);
+      l.rate = r.v!; l.rateUnit = baseOf(l.unit)[0];
+      const notes = learnRates(state, [l]); // saved to the rate memory: the next order prices it on its own
       if (notes.length) log(state, 'rate', 'Learned ' + notes.join(', '));
     }
     o.amount = o.lines.reduce((s, x) => s + (x.price || 0), 0);
-    if (missingRate(o)) { emit(state, out, 'owner', askText(state, ownerAsks(state)[0]), { kind: 'owner-ask' }); return out; }
+    const head = ownerAsks(state)[0];
+    // the customer gets the whole bill again, now with the owner's rate
+    if (o.lines.length && (r.v != null || o.status === 'ask')) emit(state, out, c.id, '🧾 Bill update (' + itemName(l.name) + (r.drop ? ' hata diya' : ' ka daam aa gaya') + '):\n' + custBill(o).replace(/^🧾 Bill:\n/, '') +
+      (o.status === 'ask' ? '\nUdhaar mein likhein? *Haan* (khate mein) ya *Nahi* (cash denge)' : ''), o.status === 'ask' ? { kind: 'order-ask', orderId: o.id } : { kind: 'order-bill', orderId: o.id });
+    if (missingRate(o)) { emit(state, out, 'owner', askText(state, head), { kind: 'owner-ask' }); return out; }
+    if (head && head.type === 'order-rate') {
+      ownerAsks(state).shift();
+      emit(state, out, 'owner', '👍 ' + (r.drop ? itemName(l.name) + ' hata diya' : itemName(l.name) + ' ' + rateText(r.v!, l.unit ? baseOf(l.unit)[0] : '') + ' yaad rakh liya') + '. ' + c.name + ' ko poora bill bhej diya (' + rupees(o.amount) + ').');
+      if (ownerAsks(state).length) emit(state, out, 'owner', askText(state, ownerAsks(state)[0]), { kind: 'owner-ask' });
+      return out;
+    }
     return out.concat(answerOwnerAsk(state, true)); // every rate known: the owner's rate is the owner's ok
   }
   /** The customer's "haan" (udhaar) or "nahi" (cash) on their order. */
@@ -3520,6 +3661,7 @@ function factory() {
     const o = orders(state).find((x) => x.id === orderId && x.custId === custId && x.status === 'ask');
     if (!o) return out;
     o.mode = udhaar ? 'udhaar' : 'cash'; o.status = 'owner';
+    state.ownerAsks = ownerAsks(state).filter((a) => !(a.type === 'order-rate' && a.orderId === o.id)); // the order's own question asks any rate still missing
     emit(state, out, custId, (udhaar ? '📝 Theek hai, udhaar par.' : '💵 Theek hai, cash par.') + ' Order dukaandaar ke paas hai, pakka karte hi yahin bata denge. 🙏');
     askOwner(state, out, { type: 'order', orderId: o.id });
     return out;
@@ -3635,9 +3777,11 @@ function factory() {
   /** "hau" is a common phone typo of "hai" ("mera kitna udhaar hau"). */
   const balanceText = (t: string): string => t.replace(/\shau(?=\s)/g, ' hai');
   /** A balance question ("kitna udhaar hai/hau", "kitna baaki"), not a payment report. */
+  // a bare "baki?" / "baaki?" / "बाकी?" (with at most a "hai" or "batao") asks the balance too
+  const BARE_BALANCE = /^\s(mera\s|meri\s|mere\s)?(baki|bakaya|udhar)(\s(hai|he|h|kitna|kitana|kitni|batao|bata do|bolo|ji|bhai|bhaiya|please|plz))*\s$/;
   function isBalanceQ(tok: { text: string }): boolean {
     const t = balanceText(tok.text);
-    return BALANCE_RX.test(t) && !/\s(diya|diye|kar diya|bhej diya)\s/.test(t);
+    return (BALANCE_RX.test(t) || BARE_BALANCE.test(t)) && !/\s(diya|diye|kar diya|bhej diya)\s/.test(t);
   }
   /** A short bare answer to "udhaar mein likhein? Haan/Nahi": haan/nahi/udhaar/cash/naqad plus at most 2 filler words. */
   function bareAskReply(text: string): boolean {
@@ -3792,10 +3936,12 @@ function factory() {
    */
   /** "QR bhejo" / "200 pay karna hai": the baaki and the shop's UPI. Nothing is written until the payment is confirmed. */
   function offerPay(state: State, c: Customer, said: { amount: number } | null, out: Message[], bad?: boolean, nowMs?: number): Message[] {
-    if (bad) { emit(state, out, c.id, 'QR 0 se zyada raqam ka hi banta hai 🙏 Kitne ka QR bhejun? Poora ' + rupees(Math.max(0, Math.round(balance(state, c.id)))) + ' ya kam?'); c.payAsk = Date.now(); return out; }
+    if (bad) { emit(state, out, c.id, 'QR 0 se zyada raqam ka hi banta hai 🙏 Kitne ka QR bhejun? Poora ' + rupees(Math.max(0, Math.round(balance(state, c.id)))) + ' ya kam?'); c.payAsk = nowMs || Date.now(); return out; }
     const want = said && said.amount > 0 ? Math.round(said.amount) : null;
     const p = payAmount(state, c.id, want, { over: true });
     if (p.error === 'none-due') { emit(state, out, c.id, 'Aapka koi baaki nahi hai 🙏 - ' + state.shop.name); return out; }
+    // "qr 5000000": over the one-payment UPI cap is a typo, asked again, never silently swapped for the full baaki
+    if (p.error === 'too-big') { emit(state, out, c.id, rupees(p.amount!) + ' ek baar mein UPI se nahi jaata (' + rupees(UPI_MAX) + ' tak) 🙏 Kitne ka QR bhejun? Poora ' + rupees(p.balance) + ' ya kam?', { kind: 'pay-ask', amount: p.balance }); c.payAsk = nowMs || Date.now(); return out; }
     if (!shopUpi(state)) {
       emit(state, out, c.id, 'Baaki: ' + rupees(p.balance) + '. Dukaan ka UPI abhi set nahi hai 🙏 Dukaan par cash de dijiye, phir "cash de diya" likh dijiye.');
       // the owner hears once why the customer got no QR, and where to fix it
@@ -3849,6 +3995,7 @@ function factory() {
     if (consentOf(state, c.id).status === 'granted' && REVOKE_RX.test(String(text).toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim())) return revokeConsent(state, c.id);
     const pre = customerPrefilter(text); // emoji, abuse and opt-out never depend on the LLM
     let ci: CustomerIntent = pre || (c.optedOut ? null : opts.intent) || customerIntentRules(state, c, text);
+    if (!pre && ci.intent !== 'balance' && BARE_BALANCE.test(balanceText(tokenize(text).text))) ci = Object.assign({}, ci, { intent: 'balance' });
     // a pay-now with an amount wins over any reading, the AI's "order" too ("meko 30 bhejna hai" is ₹30, never "Meko x30")
     let pn = ['abusive', 'opt_out', 'dispute', 'correction'].indexOf(ci.intent) < 0 && !c.optedOut ? payNowAsk(text) : null;
     // the answer to "Kitne ka QR bhejun?": a bare number, or "poora"
@@ -3863,6 +4010,12 @@ function factory() {
     if (c.paidAsk && nowMs - c.paidAsk.at >= PAID_ASK_MS) delete c.paidAsk;
     const pa = c.paidAsk && !c.optedOut ? paidAnswer(text) : null;
     if (pa) return answerPaidAsk(state, c, pa, out, nowMs);
+    // the answer to "Aapne ₹X likha, baaki sirf ₹Y hai. Kitne cash diye?"
+    if (c.cashAsk && nowMs - c.cashAsk.at >= 30 * MIN) delete c.cashAsk;
+    if (c.cashAsk && !c.optedOut) {
+      const ans = cashAskAnswer(state, c, text, out, nowMs);
+      if (ans) return out;
+    }
     // "30 bhejna hai" is ₹30, but "2 maggi bhejna" with a known item stays an order
     if (pn && pn.weak && orderLines(state, text).some((l) => l.from === 'memory' || l.from === 'variant')) pn = null;
     if (pn && (pn.amount != null || pn.ask)) {
@@ -3941,16 +4094,16 @@ function factory() {
       const amt = extractAmount(tok, new Set());
       const said = amt && amt.amount > 0 ? amt.amount : ci.amount || null;
       if (ci.method === 'cash') {
+        // "-20 cash de diya" / "0 cash diya": a minus or zero is never noted as a payment (nor swapped for the full baaki)
+        if (/(^|[^\d])-\s*[0-9०-९]/.test(String(text)) || (amt && amt.amount <= 0)) { emit(state, out, c.id, 'Kitne rupaye cash diye? 🙏 Raqam likh dijiye, jaise "' + Math.max(1, Math.round(bal)) + ' cash de diya".', { kind: 'cash-ask' }); return out; }
         // one open cash claim per customer at a time: a repeat within 6 hours is not a new claim and does not ping the owner again
         const open = claims(state).find((k) => k.custId === c.id && k.status === 'pending' && !k.type && k.origin !== 'galla' && (k.at ? nowMs - k.at < CUSTOMER_LIMITS.pay : k.date === state.today));
         if (open) { emit(state, out, c.id, '🙏 Aapka ' + rupees(open.amount) + ' cash wala message dukaandaar ke paas hai. Woh confirm karte hi raseed bhej denge.'); return out; }
         const amount = said || Math.max(0, bal - pendingCash(state, c.id));
         if (amount <= 0) { emit(state, out, c.id, 'Aapka koi baaki nahi hai 🙏'); return out; }
-        const k: CashClaim = { id: nextId(state, 'K'), custId: c.id, amount, date: state.today, status: 'pending', at: nowMs };
-        claims(state).push(k);
-        log(state, 'cash', c.name + ' says paid ' + rupees(amount) + ' cash (pending)');
-        emit(state, out, c.id, 'Dhanyavaad ' + c.name + ' 🙏 ' + rupees(amount) + ' cash note kar liya. Dukaandaar shaam ko confirm karenge, phir raseed bhej denge.', { kind: 'cash-noted' });
-        return out;
+        // "5000000 cash de diya" with ₹60 owed: more than the baaki (or the ₹1 lakh cap) is asked back, never noted as said
+        if (said && (said > cashCap(state) || said > Math.max(0, Math.round(bal)))) return askCashAmount(state, c, said, out, nowMs);
+        return noteCash(state, c, amount, out, nowMs);
       }
       if (!allowOnce(c, 'pay', nowMs)) { emit(state, out, c.id, '🙏 Aapka payment wala message dukaandaar ke paas hai. Payment aate hi khata update ho jayega.'); return out; }
       log(state, 'cash', c.name + ' says paid' + (said ? ' ' + rupees(said) : '') + ' by UPI (owner told)');
@@ -3975,7 +4128,7 @@ function factory() {
       if (bal > 0) { emit(state, out, c.id, 'Dhanyavaad 🙏 Kab tak de payenge? Jaise "Shukravar ko" ya "5 tareekh".'); return out; }
     }
     // an order still waiting for haan / nahi is asked again instead of going quiet
-    if (asking && asking.date === state.today) { emit(state, out, c.id, '🛒 Aapka order ruka hua hai:\n' + orderText(asking) + '\nUdhaar mein likhein? *Haan* (khate mein) ya *Nahi* (cash denge)', { kind: 'order-ask', orderId: asking.id }); return out; }
+    if (asking && asking.date === state.today) { emit(state, out, c.id, '🛒 Aapka order ruka hua hai.\n' + custBill(asking) + '\nUdhaar mein likhein? *Haan* (khate mein) ya *Nahi* (cash denge)', { kind: 'order-ask', orderId: asking.id }); return out; }
     // The menu is only for messages that are not shop talk: the AI said relevant=false, or (no AI) the rules found
     // chit-chat or a greeting. Everything else that is relevant reaches the owner below, never a menu alone.
     if (ci.intent === 'greeting' || ci.relevant === false || (ci.intent === 'chitchat' && ci.relevant !== true)) {
@@ -3995,11 +4148,52 @@ function factory() {
     return out;
   }
 
+  const cashCap = (state: State): number => state.shop.maxEntry || 100000;
+  /** A cash claim the owner confirms later; over: the customer confirmed more than they owed, so the owner is told now. */
+  function noteCash(state: State, c: Customer, amount: number, out: Message[], nowMs: number, over?: number): Message[] {
+    const k: CashClaim = { id: nextId(state, 'K'), custId: c.id, amount, date: state.today, status: 'pending', at: nowMs };
+    if (over != null) k.over = over;
+    claims(state).push(k);
+    log(state, 'cash', c.name + ' says paid ' + rupees(amount) + ' cash (pending' + (over != null ? ', over the baaki ' + rupees(over) : '') + ')');
+    emit(state, out, c.id, 'Dhanyavaad ' + c.name + ' 🙏 ' + rupees(amount) + ' cash note kar liya. Dukaandaar ' + (over != null ? 'check karke' : 'shaam ko') + ' confirm karenge, phir raseed bhej denge.', { kind: 'cash-noted' });
+    if (over != null) emit(state, out, 'owner', '⚠️ ' + c.name + ' keh rahe hain ' + rupees(amount) + ' cash diye, par khate mein baaki sirf ' + balText(over) + ' tha. Kuch nahi likha: sahi ho toh shaam ke hisaab mein ✅ (zyada ' + rupees(Math.max(0, amount - Math.max(0, over))) + ' advance), warna ❌.', { kind: 'cash-over', claimId: k.id });
+    return out;
+  }
+  /** Ask the customer to confirm a cash amount above the baaki, or to write it again when it is past the cap. */
+  function askCashAmount(state: State, c: Customer, said: number, out: Message[], nowMs: number): Message[] {
+    const bal = Math.max(0, Math.round(balance(state, c.id))), big = said > cashCap(state);
+    c.cashAsk = { at: nowMs, amount: said, big };
+    if (big) emit(state, out, c.id, '🤔 ' + rupees(said) + ' bahut badi raqam hai, shayad galti se likh gayi. Kitne rupaye cash diye? Sahi raqam likh dijiye' + (bal > 0 ? ', jaise "' + bal + '" (poora baaki)' : '') + '.', { kind: 'cash-ask' });
+    else emit(state, out, c.id, '🤔 Aapne ' + rupees(said) + ' cash likha, ' + (bal > 0 ? 'par aapka baaki sirf ' + rupees(bal) + ' hai.' : 'par aapka koi baaki nahi hai.') + ' Kitne diye?\n' +
+      (bal > 0 ? '• Poora baaki diya: "' + bal + '" likhiye\n' : '') + '• Sach mein ' + rupees(said) + ' diye: *haan* likhiye (dukaandaar check karenge)\n• Ya sahi raqam likh dijiye', { kind: 'cash-ask', amount: said });
+    return out;
+  }
+  /** The reply to askCashAmount: a number, "poora", haan / nahi. False: not an answer (the question is dropped). */
+  function cashAskAnswer(state: State, c: Customer, text: string, out: Message[], nowMs: number): boolean {
+    const ask = c.cashAsk!, bal = Math.max(0, Math.round(balance(state, c.id)));
+    const t = String(text).replace(/[०-९]/g, (d) => String(d.charCodeAt(0) - 0x966)).replace(/(\d),(\d{3})/g, '$1$2');
+    const m = /^\s*(?:(?:haan|han|ha|ji|maine|mene|main|maine to|bhaiya|मैंने|मैने|हाँ|हां|जी)\s+)*(?:₹|rs\.?)?\s*(\d+)\s*(?:rs|rupaye|rupees|₹|रुपये)?\s*(?:cash|नकद|कैश)?\s*(?:de diye|de diya|diye|diya|दिए|दिये|दिया)?\s*(?:the|tha|थे|था)?\s*[.!🙏]*\s*$/i.exec(t);
+    const poora = /^\s*(poora|pura|full|sab|saara|sara|poore|pure|पूरा|पूरे)\b/i.test(t);
+    const yn = m || poora ? null : shortAnswer(text);
+    if (!m && !poora && !yn) { delete c.cashAsk; return false; }
+    delete c.cashAsk;
+    if (yn === 'no') { emit(state, out, c.id, 'Theek hai 🙏 Jitne cash diye, woh likh dijiye, jaise "' + Math.max(1, bal) + ' cash de diya".', { kind: 'cash-ask' }); return true; }
+    if (poora) { if (bal <= 0) emit(state, out, c.id, 'Aapka koi baaki nahi hai 🙏'); else noteCash(state, c, bal, out, nowMs); return true; }
+    const n = m ? +m[1] : ask.amount;
+    if (yn === 'yes' && ask.big) { askCashAmount(state, c, ask.amount, out, nowMs); return true; }
+    if (n <= 0) { emit(state, out, c.id, 'Kitne rupaye cash diye? 🙏 Raqam likh dijiye, jaise "' + Math.max(1, bal) + '".', { kind: 'cash-ask' }); c.cashAsk = { at: nowMs, amount: ask.amount, big: ask.big }; return true; }
+    if (n <= bal) { noteCash(state, c, n, out, nowMs); return true; }
+    // still above the baaki: the same amount again (or "haan") is the customer's confirmation, the owner checks it
+    if (n <= cashCap(state) && (yn === 'yes' || n === ask.amount)) { noteCash(state, c, n, out, nowMs, bal); return true; }
+    askCashAmount(state, c, n, out, nowMs);
+    return true;
+  }
   function claimLabel(state: State, k: CashClaim): string {
     const n = getCust(state, k.custId).name;
     if (k.type === 'check') return n + ' ne ' + k.label + ' ko galat bataya. ✅ = aapki entry sahi hai, ❌ = galti thi, theek karo';
     if (k.type === 'credit') return n + ': ' + rupees(k.amount) + ' udhaar? (Galla Mic ne suna)';
     if (k.method === 'upi') return n + ': ' + rupees(k.amount) + ' UPI (grahak ne bataya, bank check karein)';
+    if (k.over != null) return n + ': ' + rupees(k.amount) + ' cash (grahak ne bataya; baaki sirf ' + balText(k.over) + ' tha, zyada advance hoga)';
     return n + ': ' + rupees(k.amount) + ' cash' + (k.origin === 'galla' ? '? (Galla Mic ne suna' + (k.why ? ', ' + k.why : '') + ')' : ' (grahak ne bataya)');
   }
   /** Owner's one-tap answer to a pending item. ok=true records it; a customer's cash claim marked ❌ becomes a dispute. */
@@ -4838,7 +5032,7 @@ function factory() {
     llmRequestParts, intentFromLlm,
     // shared action layer
     customerRows, customerMessageCount, dueCalendar, supplierCards, supplierView, wsCategory, expectedPayDate,
-    FEATURES, runAction, freshShop, looksLikeUpiSms, ACTIONS, openChecks, autoAccept, todayStats, weekStats, parseSupplier, supplierList, orderLines, customerOrder, orderReply, orderRateAnswer, parseWholesale, seedWholesalers, addWholesaler, handleWholesalerMessage, wsOrderText, parseVouch, udhaarLimit, nextPayday,
+    FEATURES, runAction, freshShop, makeSupplierIntent, custBill, looksLikeUpiSms, ACTIONS, openChecks, autoAccept, todayStats, weekStats, parseSupplier, supplierList, orderLines, customerOrder, orderReply, orderRateAnswer, parseWholesale, seedWholesalers, addWholesaler, handleWholesalerMessage, wsOrderText, parseVouch, udhaarLimit, nextPayday,
     // real WhatsApp channel
     looksLikeCounter, counterIntent, listIntent, listEditIntent,
     customerFromWhatsapp, shortAnswer, removeIntent, live, claimLabel,

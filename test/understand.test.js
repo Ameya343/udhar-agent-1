@@ -122,7 +122,7 @@ test('customer: "anti dandruff shampoo add karo" and a Marathi order become orde
     st = s.getState();
     const o = st.orders.filter((x) => x.custId === 'C003').pop();
     assert.deepEqual(o.lines.map((l) => [l.name, l.price]), [['anti dandruff shampoo', null]], 'the AI said 180 but the customer never did');
-    assert.match(toCust(st, 'C003', from)[0].text, /Anti dandruff shampoo \(daam dukaan par\)/);
+    assert.match(toCust(st, 'C003', from)[0].text, /Anti dandruff shampoo — daam dukaandaar batayenge/);
     from = st.messages.length;
     await act(base, 'customer', { custId: 'C002', text: 'मला दोन किलो साखर आणि एक पाकीट दूध पाहिजे' });
     st = s.getState();
@@ -192,8 +192,8 @@ test('safety stays in code: a payment needs payment words; abuse never reaches t
     await act(base, 'customer', { custId: 'C003', text: 'photos de diye hai' });
     assert.ok(!toOwner(s.getState(), from).some((m) => /pay kar diya/.test(m.text)), 'no payment words: not a claim');
     from = s.getState().messages.length;
-    await act(base, 'customer', { custId: 'C003', text: 'મેં 200 રૂપિયા રોકડા આપ્યા' });
-    assert.ok(s.getState().cashClaims.some((k) => k.custId === 'C003' && k.amount === 200), 'Gujarati claim read through the English meaning; the amount is the stated 200, not the AI\'s 500');
+    await act(base, 'customer', { custId: 'C003', text: 'મેં 150 રૂપિયા રોકડા આપ્યા' });
+    assert.ok(s.getState().cashClaims.some((k) => k.custId === 'C003' && k.amount === 150), 'Gujarati claim read through the English meaning; the amount is the stated 150 (within the ₹170 baaki), not the AI\'s 500');
     const n = ai.calls.length;
     await act(base, 'customer', { custId: 'C003', text: 'Bsdk mera udhari to add krr' });
     assert.equal(ai.calls.length, n, 'abuse is caught before the AI');

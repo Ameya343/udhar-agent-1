@@ -508,7 +508,7 @@ test('customer order on WhatsApp: priced from memory, udhaar or cash, and one "o
   C.runAction(s, 'customer', { custId: v.id, text: 'aata 5 kilo, tel 1 litre, maggi 4 bhej do' });
   const ask = msgs(n, v.id)[0];
   assert.strictEqual(ask.kind, 'order-ask');
-  assert.match(ask.text, /Aata 5 kilo = ₹210\n.*Tel 1 litre = ₹180\n.*Maggi ×4 = ₹56\n.*Jod: ₹446/);
+  assert.match(ask.text, /Aata 5 kilo × ₹42\/kilo = ₹210\n.*Tel 1 litre × ₹180\/litre = ₹180\n.*Maggi 4 × ₹14 = ₹56\n.*Kul: ₹446/);
   assert.match(ask.text, /Udhaar mein likhein\?/);
   assert.strictEqual(s.txns.length, before, 'nothing written before the owner says ok');
   n = s.messages.length;

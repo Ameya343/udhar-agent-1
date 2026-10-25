@@ -368,7 +368,7 @@ function rulesUnderstand(state: State, role: string, text: string, c?: Customer)
     if (le) intent = 'list_edit';
     else if (li) intent = 'list';
     else if (ws) { intent = 'wholesale'; wsLines = (ws.groups || []).reduce((a, g) => a.concat(g.lines || []), ws.lines || []); }
-    else if (C.parseSupplier(state, text)) intent = 'supplier';
+    else if (C.parseSupplier(state, text) || C.makeSupplierIntent(state, text)) intent = 'supplier';
     else if (C.removeIntent(state, text)) intent = C.removeIntent(state, text)!.intent;
     else intent = OWNER_FROM_RULES[C.parseOwnerMessage(text, state.today).intent] || 'unknown';
     const p = C.parseOwnerMessage(text, state.today);

@@ -48,7 +48,8 @@ test('the 18 Oct conversation: "anti dandruff shampoo add karo" after an order r
     // the first order, as on the live shop: chaaval priced from memory, daal without a rate
     let r = say(s, c, 'ek kilo chaaval, do kilo daal', llm === 'chitchat' ? 'order' : llm);
     assert.strictEqual(r.cust[0].kind, 'order-ask');
-    assert.match(r.custText, /Daal 2 kilo \(daam dukaan par\)[^]*Jinka rate nahi likha, woh dukaan batayegi/);
+    assert.match(r.custText, /Chaaval 1 kilo × ₹60\/kilo = ₹60\n {2}• Daal 2 kilo — daam dukaandaar batayenge[^]*Daam aate hi poora bill/);
+    assert.match(r.ownerText, /Daal ka daam\? \(jaise 'daal 14'\)/, 'the owner is asked the new item at once');
     // his real answer, which used to get no reply
     r = say(s, c, 'khaate men likho abhi paise naheen hai mere paas. main jab aaoonga tab doonga.', llm === 'order' ? 'promise' : llm);
     assert.match(r.custText, /udhaar par\. Order dukaandaar ke paas hai/);
@@ -64,7 +65,7 @@ test('the 18 Oct conversation: "anti dandruff shampoo add karo" after an order r
 
     // then the messages that went unanswered
     r = say(s, c, 'Shampoo bhi tha yaar usako bhi add karo', llm);
-    assert.match(r.custText, /Pichhle order mein jod rahe hain \(udhaar par\):\n {2}• Shampoo \(daam dukaan par\)[^]*Order dukaan ko bhej diya, rate dukaan batayegi/, String(llm));
+    assert.match(r.custText, /Pichhle order mein jod rahe hain \(udhaar par\):\n🧾 Bill:\n {2}• Shampoo — daam dukaandaar batayenge[^]*Order dukaan ko bhej diya, rate dukaan batayegi/, String(llm));
     assert.match(r.ownerText, /➕ Pichhle order mein jodna: Sarthak seth, udhaar par\n {2}• Shampoo \(daam\?\)/);
     r = say(s, c, 'entry anti dandruff shampoo add karo.', llm);
     assert.match(r.custText, /Anti dandruff shampoo aapke order mein jod diya\. Order dukaan ko bhej diya, rate dukaan batayegi/);
@@ -90,12 +91,12 @@ test('order phrasings: add karo, daal do, likh do, bhej do, chahiye, de dena, ek
     'anti dandruff shampoo add karo': 'Anti dandruff shampoo',
     'Clinic Plus shampoo daal do': 'Clinic plus shampoo',
     'ek Dairy Milk likh do': 'Dairy milk',
-    '2 Maggi bhej do': 'Maggi ×2',
+    '2 Maggi bhej do': 'Maggi 2 × ₹14 = ₹28',
     'mujhe Surf Excel chahiye': 'Surf excel',
     'Lux sabun de dena': 'Lux sabun',
     'ek aur Parle-G': 'Parle-G',
     'Colgate toothpaste bhejna': 'Colgate toothpaste',
-    'मुझे दो किलो चीनी चाहिए': 'Cheeni 2 kilo = ₹90'
+    'मुझे दो किलो चीनी चाहिए': 'Cheeni 2 kilo × ₹45/kilo = ₹90'
   };
   for (const llm of [undefined, 'chitchat', 'question', 'greeting', 'order']) {
     for (const [text, item] of Object.entries(cases)) {
@@ -141,7 +142,7 @@ test('a new number (no khata) orders an item without a rate: cash only, the owne
   const g = C.customerFromWhatsapp(s, '9811111111', 'Rahul').cust;
   owner(s, 'nahi', g); // no khata
   let r = say(s, g, 'anti dandruff shampoo add karo', 'question');
-  assert.match(r.custText, /Order mila:\n {2}• Anti dandruff shampoo \(daam dukaan par\)[^]*Cash par ready karenge\. Order dukaan ko bhej diya, rate dukaan batayegi/);
+  assert.match(r.custText, /Order mila\.\n🧾 Bill:\n {2}• Anti dandruff shampoo — daam dukaandaar batayenge\n {2}Kul: daam dukaandaar batayenge[^]*Cash par ready karenge\. Order dukaan ko bhej diya, rate dukaan batayegi/);
   assert.match(r.ownerText, /Naya order: Rahul, cash par[^]*Anti dandruff shampoo kitne ka\? Daam likhiye[^]*ya \*ok\* \(daam dukaan par\)/);
   assert.ok(!r.cust.some((m) => m.kind === 'order-ask'), 'a guest is never offered udhaar');
   const k = s.txns.length;
@@ -156,7 +157,7 @@ test('"add karo" while the order waits: one order grows; "nahi hai" from the own
   say(s, c, 'chaaval 2 kilo bhej do');
   let r = say(s, c, 'anti dandruff shampoo bhi add karo');
   assert.strictEqual(s.orders.length, 1);
-  assert.match(r.custText, /Anti dandruff shampoo jod diya\.\n🛒 Order ab:\n {2}• Chaaval 2 kilo = ₹120\n {2}• Anti dandruff shampoo \(daam dukaan par\)[^]*Udhaar mein likhein\?/);
+  assert.match(r.custText, /Anti dandruff shampoo jod diya\. Order ab:\n🧾 Bill:\n {2}• Chaaval 2 kilo × ₹60\/kilo = ₹120\n {2}• Anti dandruff shampoo — daam dukaandaar batayenge[^]*Udhaar mein likhein\?/);
   assert.strictEqual(r.cust[0].kind, 'order-ask');
   // anything unclear while the order waits gets the question again, never silence
   r = say(s, c, 'suna kya?', 'chitchat');
@@ -215,7 +216,7 @@ test('WhatsApp voice note "एंटी डैंड्रफ शैम्पू
     await inbound(wmsg(CUST, VOICE));
     const k = lib.texts(CUST);
     assert.strictEqual(k.length, 1);
-    assert.match(k[0], /Order mila:\n {2}• Anti dandruff shampoo \(daam dukaan par\)[^]*rate nahi likha, woh dukaan batayegi[^]*Udhaar mein likhein\?/);
+    assert.match(k[0], /Order mila\.\n🧾 Bill:\n {2}• Anti dandruff shampoo — daam dukaandaar batayenge[^]*Daam aate hi poora bill[^]*Udhaar mein likhein\?/);
     await inbound(wmsg(CUST, txt('haan')));
     assert.match(lib.texts(OWNER).join('\n'), /Naya order: Sarthak, udhaar par\n {2}• Anti dandruff shampoo \(daam\?\)[^]*Anti dandruff shampoo kitne ka\?/);
     const llmBefore = calls.filter((u) => u.endsWith('/chat/completions')).length;

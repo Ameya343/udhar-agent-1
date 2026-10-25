@@ -254,7 +254,7 @@ test('WhatsApp order: the customer orders, says haan for udhaar, the owner says 
     await inbound(base, server, { From: from(OWNER), Body: 'Rohit ne cheeni 2 kilo 90 liya' }); // opens the khata, teaches the rate
     tw.clear();
     await inbound(base, server, { From: from(JUDGE), Body: 'cheeni 1 kilo bhej do' });
-    assert.match(tw.to(JUDGE).join('\n'), /Cheeni 1 kilo = ₹45[^]*Udhaar mein likhein/);
+    assert.match(tw.to(JUDGE).join('\n'), /Cheeni 1 kilo × ₹45\/kilo = ₹45[^]*Udhaar mein likhein/);
     tw.clear();
     await inbound(base, server, { From: from(JUDGE), Body: 'haan' });
     assert.match(tw.to(JUDGE).join('\n'), /udhaar par\. Order dukaandaar ke paas hai/);

@@ -100,6 +100,8 @@ export interface Customer {
   payAsk?: number;
   /** A UPI QR went out and "Payment ho gaya? 1 / 2" is waiting: when, and for how much. */
   paidAsk?: { at: number; amount: number };
+  /** "5000 cash de diya" with less than that owed: the customer is asked to confirm the amount before any claim. */
+  cashAsk?: { at: number; amount: number; big?: boolean };
   demo?: boolean;
 }
 
@@ -213,6 +215,8 @@ export interface CashClaim {
   at?: number;
   /** 'upi': the customer said they paid the QR; the owner checks the bank before it is written. */
   method?: 'upi';
+  /** the customer confirmed a cash amount above what they owed: the balance then, for the owner's check */
+  over?: number;
   resolvedOn?: IsoDate;
   items?: string;
   heard?: string;
@@ -295,7 +299,7 @@ export interface Order {
 
 /** A question waiting for the owner's ok / nahi (the first one is what "ok" answers). */
 export interface OwnerAsk {
-  type: 'ws-order' | 'ws-bill' | 'vouch' | 'rejoin' | 'guest' | 'order';
+  type: 'ws-order' | 'ws-bill' | 'vouch' | 'rejoin' | 'guest' | 'order' | 'order-rate';
   orderIds?: string[];
   orderId?: string;
   custId?: string;
@@ -334,7 +338,9 @@ export interface Pending {
   options: string[];
   action?: OwnerIntent;
   allowNew?: boolean;
-  what?: 'void' | 'fix' | 'pay' | 'new-cust' | 'loose-cust' | 'repeat' | 'upi-claim';
+  what?: 'void' | 'fix' | 'pay' | 'new-cust' | 'loose-cust' | 'repeat' | 'upi-claim' | 'make-supplier';
+  /** make-supplier: the wholesaler to create from the customer custId once the owner says haan */
+  supplier?: MakeSupplier;
   claimId?: string;
   txnId?: string;
   custId?: string;
@@ -344,6 +350,16 @@ export interface Pending {
   upi?: UpiInfo;
   ask?: number;
   lines?: WsLine[];
+}
+
+/** "Ramesh ko supplier banao 98xxxxxxxx, wo doodh aur bread deta hai": who, their number, what they supply. */
+export interface MakeSupplier {
+  name: string;
+  key: string;
+  phone: string | null;
+  items: string[];
+  /** a customer of the same name, if there is one */
+  custId?: string;
 }
 
 /** One shop's whole khata. */
