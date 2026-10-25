@@ -35,6 +35,7 @@ Built by **team CodingNinjas** (Nagpur) for **Hackyard Build 2026**:
 12. [Nodus plan (planned, not live)](#12-nodus-plan-planned-not-live)
 13. [Configuration (environment variables)](#13-configuration-environment-variables)
 14. [Run it locally](#14-run-it-locally)
+    - [Deploy on Render (secondary)](#deploy-on-render-secondary)
 15. [Repository layout](#15-repository-layout)
 16. [Roadmap](#16-roadmap)
 
@@ -239,7 +240,14 @@ The agent serves a web dashboard with tabs **Home** (total baaki, late customers
 | Other buttons (remove / restore a customer, supplier category) | Work | Owner key only |
 
 
-The page opens with the owner's login (mobile number + password/PIN; the first login is created once with the `ADMIN_KEY`) or, as before, with `/?key=ADMIN_KEY`. Shop profile (Menu → Shop profile) holds the shop name, owner, address and GSTIN, or PAN if not GST registered: format-checked only, shown masked.
+The page opens on an **entry page** with two choices:
+
+- **Login**: an owner logs in with mobile number + password/PIN and lands in their own shop only. The instance's own shop (for example Gupta) works as before: its first login is created once with the `ADMIN_KEY`, and `/?key=ADMIN_KEY` still works.
+- **Register new shop**: a new owner creates a shop (shop name, owner name, mobile, password/PIN) and gets an empty khata of their own. **One shop per owner**: a mobile number can own only one shop. Registrations are rate-limited per visitor IP (`REGISTER_LIMIT_PER_HOUR`, default 5).
+
+**Per-shop WhatsApp.** Each registered shop can link its own WhatsApp number from its dashboard by scanning a QR (WhatsApp → Linked devices). Each shop gets its own linked-device session (keys in `<WA_WEB_AUTH_DIR>-shops/<shopId>`), and a shop linked before a restart reconnects on its own. At most `WA_MAX_SHOPS` registered shops (default 10) may be linked at the same time; the instance's own shop is not counted. Which shop an owner's phone belongs to is kept in the `shop_accounts` table (migration `db/migrations/003_shop_accounts.sql`, additive and idempotent; the server also creates it on start), or in a JSON file under `DATA_DIR` without a database.
+
+Inside a shop, the page opens with the owner's login (mobile number + password/PIN; the first login is created once with the `ADMIN_KEY`) or, as before, with `/?key=ADMIN_KEY`. Shop profile (Menu → Shop profile) holds the shop name, owner, address and GSTIN, or PAN if not GST registered: format-checked only, shown masked.
 
 ---
 
@@ -291,7 +299,7 @@ flowchart LR
 | Database | PostgreSQL on Neon with row-level security, plus a JSON file backup written at the same time |
 | Hosting | Agent37 instance, deployed as an Agent37 template (Docker, `node:22-alpine`) |
 | Dashboard | Single HTML page built from `web/index.src.html`, served by the agent |
-| Tests | `node --test`, 476 tests; live test run of 900 cases (`livetest/`) |
+| Tests | `node --test`, 483 tests; live test run of 900 cases (`livetest/`) |
 
 ## 7. Data model
 
@@ -341,7 +349,7 @@ After the AI, the **safety rules always run**. Replies are written in Hinglish a
 
 | What | Result | Scope |
 |---|---|---|
-| Unit and flow tests (`npm test`) | **476 tests**: 459 pass, 0 fail, 17 skipped (tests that need a live database are skipped without one) | Parser, safety rules, WhatsApp flows, voice, PostgreSQL store, dashboard, stress cases, plus white-box tests of internal branches |
+| Unit and flow tests (`npm test`) | **483 tests**: 466 pass, 0 fail, 17 skipped (tests that need a live database are skipped without one) | Parser, safety rules, WhatsApp flows, voice, PostgreSQL store, dashboard, stress cases, plus white-box tests of internal branches |
 | Coverage | about **90% of lines** and **91% of branches** | Measured with Node's built-in test coverage over the same suite |
 | Stress test | about **7,000** generated messages, **0 open bugs from the stress test** (every bug it found was fixed) | **Rules path only** |
 | Five rounds of manual stress testing | every finding logged in Jira (KAN-15 to KAN-147), fixed with a regression test in `test/st3.test.js`, `test/st4.test.js`, `test/st5.test.js` and others | Rules path, plus the AI path with a mocked model |
@@ -404,7 +412,7 @@ flowchart LR
 | Check | Result |
 |---|---|
 | Live test run (`livetest/`, 900 hand-checked Hinglish cases in 15 groups) | **900 / 900 pass** |
-| Unit and flow tests (`npm test`) | **476 tests**: 459 pass, 0 fail, 17 skipped (need a live database) |
+| Unit and flow tests (`npm test`) | **483 tests**: 466 pass, 0 fail, 17 skipped (need a live database) |
 
 **How to run the test-run:**
 
@@ -444,6 +452,8 @@ Put these in the env file on the instance (`/home/node/udhaar.env`), never in th
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_STT_MODEL` | Voice-note transcription (Scribe) |
 | `STT_PROVIDER`, `STT_URL`, `STT_KEY`, `STT_MODEL`, `STT_LANGUAGE` | Own speech-to-text server (planned Nodus path) |
 | `WA_PROVIDER`, `WA_WEB_AUTH_DIR`, `WA_WEB_MAX_PER_HOUR` | WhatsApp transport and send cap |
+| `WA_MAX_SHOPS` | Registered shops that may link their own WhatsApp number at the same time (default 10; `0` = none) |
+| `REGISTER_LIMIT_PER_HOUR` | New-shop registrations per hour per visitor IP (default 5) |
 | `WA_VOICE_REPLIES`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_MODEL` | Hindi voice replies by ElevenLabs text to speech (built, off) |
 | `REAL_CLOCK`, `EVENING_HOUR` | `1` = **live mode**: the real calendar drives reminders and the evening summary (at `EVENING_HOUR`, default 21), the dashboard locks for visitors without `ADMIN_KEY`, and reset / next day / close day are refused |
 | `FEATURE_VOUCH` | `1` turns newcomer vouching on (off by default) |
@@ -483,6 +493,39 @@ npm test
 
 `npm run build` compiles the TypeScript and builds the dashboard page from `web/index.src.html` into `index.html` and `dist/`. Never edit `dist/` by hand.
 
+### Deploy on Render (secondary)
+
+Agent37 is the main deployment. Render is a second option for the same Docker image.
+
+1. In Render: **New → Web Service**, connect the GitHub repo **`udhar-agent-1`**.
+2. **Runtime: Docker.** Render builds the repo's `Dockerfile` (Node 22, compiles the TypeScript, runs `node dist-server/server/server.js`).
+3. **Port: 8000.** The image sets `PORT=8000` and exposes 8000.
+4. **Instance type: a paid Starter.** The free tier sleeps when idle, which drops the WhatsApp linked-device session and stops reminders.
+5. **Add a persistent Disk mounted at `/home/node/data`** (the image's `DATA_DIR`). The JSON khata, owner logins, the shop registry and the WhatsApp session keys (`/home/node/data/wa-web-auth` and `/home/node/data/wa-web-auth-shops/<shopId>`) live there. Without a disk, every deploy logs everyone out of WhatsApp. If you set `WA_WEB_AUTH_DIR`, keep it on the disk.
+6. **Environment variables** (names only; set the values in Render, never in the repo). Render passes env vars directly, so the `udhaar.env` file is not needed.
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string (optional; without it the khata is kept in JSON on the disk) |
+| `STORE` | Store mode with a database: `pg-schema`, `pg-tables`, or unset (one jsonb row) |
+| `DUAL_WRITE_JSON` | `1` = also write the JSON file on the disk on every save, as a backup |
+| `SHOP`, `SHOP_ID`, `SHOP_CITY` | Which demo shop to seed, its id and its town |
+| `REAL_CLOCK` | `1` = live mode (already set in the image) |
+| `ADMIN_KEY` | Owner key; also needed to create the first owner login |
+| `TAX_ID_KEY` | Encrypts the shop's GSTIN / PAN |
+| `PUBLIC_URL` | The Render service's public address |
+| `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | The model endpoint (the Agent37 router is not available on Render) |
+| `ELEVENLABS_API_KEY` | Voice-note transcription |
+| `REGISTER_LIMIT_PER_HOUR` | New-shop registrations per hour per visitor IP |
+| `WA_MAX_SHOPS` | Registered shops that may link WhatsApp at the same time (`0` on Render, see the warning) |
+| `WA_PROVIDER`, `LINK_KEY`, `OWNER_WHATSAPP` | WhatsApp for the instance's own shop; leave all three unset on Render (see the warning) |
+
+7. **Health check path: `/healthz`.**
+
+> **WARNING: never link the same WhatsApp number on Render and on Agent37 at the same time.** Two linked-device sessions on one number conflict and knock each other off. On Render, keep WhatsApp off unless this instance replaces the Agent37 one. The server has no `off` value for `WA_PROVIDER`: any value of `WA_PROVIDER`, `LINK_KEY` or `OWNER_WHATSAPP` turns WhatsApp on, so leave those three unset and set `WA_MAX_SHOPS=0` so registered shops cannot link a number either.
+>
+> **The Agent37 instance must stay the official build for Hackyard judging.** Render is a secondary copy only.
+
 ## 15. Repository layout
 
 | Path | What it is |
@@ -493,7 +536,7 @@ npm test
 | `server/whatsapp.ts`, `server/wa-web.ts` | Message router, voice handling, Baileys linked device |
 | `server/llm.ts`, `server/brain.ts` | Model fallback chain, understand + translate |
 | `server/store.ts`, `server/tables.ts`, `server/schema.ts` | PostgreSQL + JSON store, normalised tables, per-shop schema |
-| `db/migrations/` | PostgreSQL migrations, including RLS |
+| `db/migrations/` | PostgreSQL migrations: `001_shop_tables`, `002_owner_auth`, `003_shop_accounts` (owner phone to shop), including RLS |
 | `scripts/` | Migrate, import JSON to PostgreSQL, evals, demo data |
 | `stt/` | Own Whisper speech-to-text server (for Nodus) |
 | `web/index.src.html` | Dashboard source |
@@ -508,7 +551,7 @@ npm test
 All of these are **planned, not live**:
 
 - **Gateway-verified UPI QR:** a per-customer UPI QR whose payment is confirmed by a payment gateway, replacing today's simulated SMS matching.
-- **Multi-shop:** many shops per instance with the per-shop schema, to bring the cost per shop down.
+- **Multi-shop at scale:** shops can already register on one instance (section 4.12); next is moving many shops onto the per-shop schema to bring the cost per shop down.
 - **Nodus open model and speech-to-text:** section 12.
 - **Voice replies:** Hindi voice-note replies to customers (code exists behind `WA_VOICE_REPLIES`, off).
 - **Photo of the copy:** read a photo of the day's handwritten page, confirm with the owner, then chase.
