@@ -27,7 +27,9 @@ function createBrain(opts: BrainOpts) {
   async function understandOwner(text: string, o?: HeardOpts): Promise<Understood<OwnerIntent>> {
     o = o || {};
     const state = getState();
-    const rules = C.parseOwnerMessage(text, state.today);
+    // with the shop's state, as the khata reads it: the customers' names and the item rates (a fallback without them
+    // read "Pappu toString 200" as a khata named "Pappu Tostring", found by /test-run's hand-checked AI cases)
+    const rules = C.parseOwnerMessage(text, state.today, state);
     const answering = state.pending || C.orderRateAnswer(state, text) || (C.shortAnswer(text) && ((state.ownerAsks || []).length || C.pendingClaims(state).length));
     if (!llm.enabled || !String(text).trim() || answering || C.looksLikeUpiSms(text)) return rules;
     try {

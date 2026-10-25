@@ -1,6 +1,8 @@
 // Runs one case from livetest/cases.js against the compiled core, on its own throwaway demo shop (never the live khata),
-// and compares what the khata actually did with the hand-written expectation. Owner text goes through the rules parser only:
-// no model is called. Works in Node (module.exports) and in the page (self.UdhaarRunner).
+// and compares what the khata actually did with the hand-written expectation. runCase: owner text goes through the rules
+// parser only, no model is called. runCaseAi: each owner message is first read by the model (read(state, text) gives the
+// intent, as the server's brain.understandOwner does), then the same khata code runs; the server uses it for /test-run's
+// "hand-checked cases on the AI" (server/ai-test.ts). Works in Node (module.exports) and in the page (self.UdhaarRunner).
 (function (root, make) { if (typeof module === 'object' && module.exports) module.exports = make(); else root.UdhaarRunner = make(); })(typeof self !== 'undefined' ? self : this, function () {
   const rupee = (n) => '₹' + n;
   const show = (w) => w.map(([t, k, a]) => (t === 'credit' ? 'udhaar ' : 'jama ') + k + ' ' + rupee(a)).join(', ') || 'nothing written';
@@ -13,7 +15,8 @@
     if ('pay' in e) p.push(e.pay === false ? 'amount refused' : 'pay ' + rupee(e.pay));
     return p.join('; ');
   }
-  function runCase(C, kase, today) {
+  // one case, step by step: yields { state, text } before each owner message and takes back the model's intent (or nothing)
+  function* walk(C, kase, today) {
     const s = C.freshShop('gupta', today);
     const byName = (k) => s.customers.find((c) => c.name === k);
     const nameOf = (id) => { const c = s.customers.find((x) => x.id === id); return c ? c.name : id; };
@@ -26,7 +29,7 @@
       const before = JSON.stringify(s.txns), n = s.txns.length, m = s.messages.length;
       let got = '';
       try {
-        if (st.who === 'owner') C.runAction(s, 'owner', { text: st.text, source: 'text' });
+        if (st.who === 'owner') { const intent = yield { state: s, text: st.text }; C.runAction(s, 'owner', intent ? { text: st.text, source: 'text', intent } : { text: st.text, source: 'text' }); }
         else if (st.who === 'upi') C.runAction(s, 'upi', { text: st.text });
         else if (st.who === 'pay') {
           const r = C.payAmount(s, byName(st.cust).id, st.text);
@@ -60,5 +63,26 @@
     out.actual = actual.join('  ⏎  ');
     return out;
   }
-  return { runCase, describe };
+  function runCase(C, kase, today) {
+    const g = walk(C, kase, today);
+    let r = g.next();
+    while (!r.done) r = g.next();
+    return r.value;
+  }
+  /** The same case with the model reading each owner message first; read's failure counts as the rules reading it. */
+  async function runCaseAi(C, kase, today, read) {
+    const g = walk(C, kase, today), by = [];
+    let r = g.next(), ms = 0;
+    while (!r.done) {
+      let intent = null;
+      try {
+        intent = await read(r.value.state, r.value.text);
+        if (intent && intent.ms != null) ms += intent.ms;
+        by.push(intent && intent.provider ? 'ai' : 'rules');
+      } catch (e) { by.push('rules'); }
+      r = g.next(intent || undefined);
+    }
+    return Object.assign(r.value, { readBy: by, ms });
+  }
+  return { runCase, runCaseAi, describe };
 });

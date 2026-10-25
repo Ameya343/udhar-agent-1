@@ -103,7 +103,7 @@ footer { color: var(--text-3); font-size: 12.5px; margin-top: 26px; }
   </header>
   <ul class="facts">
     <li>Fixed cases: <b>rules parser</b> (no AI model is called)</li>
-    <li>AI-generated cases: <b>Agent37 model + rules</b>, on the server</li>
+    <li>Hand-checked cases on the AI and AI-generated cases: <b>Agent37 model + rules</b>, on the server, live</li>
     <li>Shop: <b>fresh demo shop per case</b></li>
     <li>Cases: <b id="nCases">…</b> in <b id="nCats">…</b> groups</li>
     <li>Core build: <b>/*__BUILD__*/</b></li>
@@ -134,6 +134,29 @@ footer { color: var(--text-3); font-size: 12.5px; margin-top: 26px; }
     <div id="fails"><div class="empty">No run yet.</div></div>
   </section>
 
+  <section class="ai" aria-labelledby="fxHead">
+    <div class="head">
+      <div>
+        <h2 id="fxHead">Hand-checked cases on the Agent37 AI</h2>
+        <p class="note">A mix of the hand-checked cases above, from every group, now run the way a real owner message runs: the shop's model reads each owner message first, through the Agent37 LLM router, then the rules check it and the khata writes. Each case runs on its own throwaway in-memory demo shop on the server: the live khata is never read or written and no WhatsApp message is sent. The expected answer was written by a person, so a FAIL here is a real bug. Each result also shows whether the rules alone gave the same answer. Results appear one by one as each case finishes.</p>
+      </div>
+      <div class="ctrl">
+        <select id="fxCount" aria-label="How many hand-checked cases"><option value="10">10 cases</option><option value="20" selected>20 cases</option><option value="40">40 cases</option></select>
+        <button class="primary" id="fxRun" type="button">Run on Agent37 AI</button>
+        <button id="fxDl" type="button" disabled>Download</button>
+      </div>
+    </div>
+    <div class="status" id="fxStatus">Checking whether this instance has a model…</div>
+    <section class="kpis" aria-label="Hand-checked AI run totals">
+      <div class="kpi"><small>Cases run</small><b id="fRun">–</b></div>
+      <div class="kpi ok"><small>Passed</small><b id="fPass">–</b></div>
+      <div class="kpi bad"><small>Failed</small><b id="fFail">–</b></div>
+      <div class="kpi"><small>Read by the AI</small><b id="fAi">–</b></div>
+      <div class="kpi"><small>Differs from rules / time</small><b id="fTime">–</b></div>
+    </section>
+    <div class="panel"><div id="fxList"><div class="empty">No AI run yet.</div></div></div>
+  </section>
+
   <section class="ai" aria-labelledby="aiHead">
     <div class="head">
       <div>
@@ -157,7 +180,7 @@ footer { color: var(--text-3); font-size: 12.5px; margin-top: 26px; }
     <div class="panel"><div id="aiList"><div class="empty">No AI run yet.</div></div></div>
   </section>
 
-  <footer>Same cases from the command line: <code>npm run build && node livetest/run.js --fails</code>. The fixed cases do not test the AI model path (the AI-generated cases above do, when the instance has a model), real WhatsApp delivery, Postgres storage and the voice input. Those have their own tests in <code>test/</code>.</footer>
+  <footer>Same cases from the command line: <code>npm run build && node livetest/run.js --fails</code>. The rules-only cases do not test the AI model path (the two AI sections above do, when the instance has a model), real WhatsApp delivery, Postgres storage and the voice input. Those have their own tests in <code>test/</code>.</footer>
 </div>
 <script>
 /*__CORE__*/
@@ -234,14 +257,73 @@ footer { color: var(--text-3); font-size: 12.5px; margin-top: 26px; }
   });
   drawCats();
 
-  // AI-generated cases: the server asks the model (server/ai-test.ts); this page only shows the result
-  let aiOut = null, aiBlocked = false;
-  const aiStatus = (html, warn) => { $('aiStatus').innerHTML = html; $('aiStatus').className = 'status' + (warn ? ' warn' : ''); };
+  // The AI runs: the server asks the model (server/ai-test.ts) and streams one JSON line per case; this page only shows them
+  let aiOut = null, fxOut = null, noModel = false;
+  const status = (id, html, warn) => { $(id).innerHTML = html; $(id).className = 'status' + (warn ? ' warn' : ''); };
   const offServer = 'This copy of the page is not served by a shop instance, so there is no model to ask. Open <b>/test-run</b> on the running shop (for example the Agent37 instance).';
+  const block = (html) => { noModel = true; for (const id of ['aiStatus', 'fxStatus']) status(id, html, true); $('aiRun').disabled = $('fxRun').disabled = true; };
   fetch('/api/ai-test').then((r) => r.ok ? r.json() : Promise.reject(r.status)).then((j) => {
-    if (j.enabled) aiStatus('Model chain on this instance: <b>' + esc(j.chain) + '</b> → rules. Up to ' + j.maxCases + ' cases per run, a few runs per hour (they spend the shop\'s model credits).');
-    else { aiStatus('No model on this instance: <b>AGENT37_LLM_PROXY_URL</b> and <b>LLM_BASE_URL</b> are unset, so the AI cannot write cases here. The fixed cases above still run.', true); aiBlocked = $('aiRun').disabled = true; }
-  }, () => { aiStatus(offServer, true); aiBlocked = $('aiRun').disabled = true; });
+    if (!j.enabled) return block('No model on this instance: <b>AGENT37_LLM_PROXY_URL</b> and <b>LLM_BASE_URL</b> are unset, so the AI cannot run cases here. The rules-only cases above still run.');
+    status('aiStatus', 'Model chain on this instance: <b>' + esc(j.chain) + '</b> → rules. Up to ' + j.maxCases + ' cases per run, a few runs per hour (they spend the shop\'s model credits).');
+    status('fxStatus', 'Model chain on this instance: <b>' + esc(j.chain) + '</b> → rules. Up to ' + (j.maxFixed || 40) + ' cases per run; each owner message is one model call.');
+  }, () => block(offServer));
+  /** POST a run and call onLine for each JSON line as it arrives (a browser without streams gets them all at the end). */
+  async function streamRun(body, onLine) {
+    const r = await fetch('/api/ai-test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ stream: true }, body)) });
+    if (!r.ok) { let j = {}; try { j = await r.json(); } catch (e) {} onLine({ type: 'done', ok: false, reason: j.error || ('HTTP ' + r.status) }); return; }
+    if (!r.body || !r.body.getReader) { for (const l of (await r.text()).split('\n')) if (l.trim()) onLine(JSON.parse(l)); return; }
+    const rd = r.body.getReader(), dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await rd.read();
+      if (value) buf += dec.decode(value, { stream: true });
+      let k;
+      while ((k = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, k); buf = buf.slice(k + 1); if (l.trim()) onLine(JSON.parse(l)); }
+      if (done) break;
+    }
+    if (buf.trim()) onLine(JSON.parse(buf));
+  }
+  const save = (obj, name) => { const blob = new Blob([JSON.stringify(Object.assign({ build: '/*__BUILD__*/' }, obj), null, 1)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
+
+  // hand-checked cases on the AI
+  function fxRow(r) {
+    const by = r.readBy.length ? (r.readBy.every((b) => b === 'ai') ? 'AI' : r.readBy.every((b) => b === 'rules') ? 'rules (AI did not answer)' : 'AI + rules') : 'no owner message';
+    const same = r.pass === r.rulesPass && r.actual === r.rulesActual;
+    return '<div class="row"><span class="id">#' + r.id + '</span><span class="chip ' + (r.pass ? 'p">PASS' : 'f">FAIL') + '</span><span class="in">' + esc(r.input) +
+      '<span class="got">expected: ' + esc(r.expected) + '</span><span class="got">→ ' + esc(r.actual) + ' · read by ' + esc(by) + (r.ms ? ' in ' + r.ms + ' ms' : '') + '</span>' +
+      (r.why.length ? '<span class="got" style="color:var(--red-t)">✗ ' + esc(r.why.join('; ')) + '</span>' : '') +
+      (same ? '' : '<span class="lbl">rules alone: ' + (r.rulesPass ? 'PASS' : 'FAIL') + ', ' + esc(r.rulesActual) + '</span>') +
+      (r.reply ? '<span class="got">agent: ' + esc(r.reply) + '</span>' : '') + '</span></div>';
+  }
+  $('fxRun').addEventListener('click', () => {
+    const got = [], t0 = Date.now();
+    let total = 0;
+    $('fxRun').disabled = true; $('fxDl').disabled = true; $('fxRun').textContent = 'Running on Agent37…';
+    $('fxList').innerHTML = '<div class="empty">Waiting for the first case. Each owner message is one model call, a second or two each.</div>';
+    for (const id of ['fRun', 'fPass', 'fFail', 'fAi', 'fTime']) $(id).textContent = '–';
+    const draw = () => {
+      const pass = got.filter((r) => r.pass).length, differ = got.filter((r) => r.pass !== r.rulesPass || r.actual !== r.rulesActual).length;
+      $('fRun').textContent = got.length + (total ? '/' + total : ''); $('fPass').textContent = pass; $('fFail').textContent = got.length - pass;
+      $('fAi').textContent = got.filter((r) => r.readBy.length && r.readBy.every((b) => b === 'ai')).length + '/' + got.length;
+      $('fTime').textContent = differ + ' · ' + ((Date.now() - t0) / 1000).toFixed(0) + ' s';
+      $('fxList').innerHTML = got.filter((r) => !r.pass).concat(got.filter((r) => r.pass)).map(fxRow).join('');
+    };
+    streamRun({ mode: 'fixed', count: +$('fxCount').value }, (l) => {
+      if (l.type === 'start') { total = l.total; status('fxStatus', 'Running ' + l.total + ' of the ' + l.of + ' hand-checked cases on <b>' + esc(l.chain) + '</b>…'); }
+      else if (l.type === 'case') { got.push(l.result); draw(); }
+      else if (l.type === 'done') {
+        if (!l.ok) { status('fxStatus', esc(l.reason || 'The run failed.'), true); if (!got.length) $('fxList').innerHTML = '<div class="empty">No cases this time.</div>'; return; }
+        fxOut = Object.assign({}, l, { type: undefined, results: got }); draw();
+        $('fTime').textContent = l.differ + ' · ' + (l.ms / 1000).toFixed(1) + ' s';
+        status('fxStatus', 'Done: ' + l.pass + ' of ' + got.length + ' passed on <b>' + esc(l.chain) + '</b>, ' + l.calls + ' model calls. ' + (l.differ ? l.differ + ' case' + (l.differ > 1 ? 's' : '') + ' came out different from the rules alone (shown in amber).' : 'Every case came out the same as the rules alone.'));
+        $('fxDl').disabled = false;
+      }
+    }).catch(() => { block(offServer); if (!got.length) $('fxList').innerHTML = '<div class="empty">No cases this time.</div>'; })
+      .then(() => { $('fxRun').disabled = noModel; $('fxRun').textContent = 'Run again on Agent37 AI'; });
+  });
+  $('fxDl').addEventListener('click', () => { if (fxOut) save(Object.assign({ path: 'hand-checked cases, real owner pipeline (AI first, rules), throwaway shop' }, fxOut), 'udhaar-ai-fixed-run.json'); });
+
+  // AI-generated cases
   function aiRow(r) {
     const why = r.why.length ? '<span class="got" style="color:var(--red-t)">✗ ' + esc(r.why.join('; ')) + '</span>' : '';
     const lbl = r.labelWhy.length ? '<span class="lbl">label: ' + esc(r.labelWhy.join('; ')) + '</span>' : '';
@@ -251,28 +333,32 @@ footer { color: var(--text-3); font-size: 12.5px; margin-top: 26px; }
       (r.reply ? '<span class="got">agent: ' + esc(r.reply) + '</span>' : '') + why + lbl + '</span></div>';
   }
   $('aiRun').addEventListener('click', () => {
+    const got = [];
+    let total = 0, gen = null;
     $('aiRun').disabled = true; $('aiDl').disabled = true; $('aiRun').textContent = 'Agent37 is writing cases…';
-    $('aiList').innerHTML = '<div class="empty">Waiting for the model. Each case is one more model call, so 10 cases take about 10 to 40 seconds.</div>';
-    fetch('/api/ai-test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ count: +$('aiCount').value }) })
-      .then((r) => r.json().then((j) => (r.ok ? j : { ok: false, reason: j.error || ('HTTP ' + r.status) })))
-      .then((j) => {
-        if (!j.ok) { aiStatus(esc(j.reason || 'The run failed.'), true); $('aiList').innerHTML = '<div class="empty">No cases this time.</div>'; return; }
-        aiOut = j;
-        aiStatus('Cases written by <b>' + esc(j.generator.via) + '</b>, model <b>' + esc(j.generator.model) + '</b>, in ' + (j.generator.ms / 1000).toFixed(1) + ' s (' + j.generator.got + ' of ' + j.generator.asked + ' asked for were usable). ' +
-          (j.labelDisagree ? j.labelDisagree + ' case' + (j.labelDisagree > 1 ? 's' : '') + ' disagree with the model\'s own label (shown, not counted).' : 'No disagreement with the model\'s labels.'));
-        $('aRun').textContent = j.results.length; $('aPass').textContent = j.pass; $('aFail').textContent = j.fail;
-        $('aAi').textContent = j.aiRead + '/' + j.results.length; $('aTime').textContent = j.calls + ' · ' + (j.ms / 1000).toFixed(1) + ' s';
-        const fails = j.results.filter((r) => !r.pass), rest = j.results.filter((r) => r.pass);
-        $('aiList').innerHTML = fails.concat(rest).map(aiRow).join('');
+    $('aiList').innerHTML = '<div class="empty">Waiting for the model to write the cases (10 to 30 seconds), then each one shows here as it is read.</div>';
+    for (const id of ['aRun', 'aPass', 'aFail', 'aAi', 'aTime']) $(id).textContent = '–';
+    const draw = () => {
+      const pass = got.filter((r) => r.pass).length;
+      $('aRun').textContent = got.length + (total ? '/' + total : ''); $('aPass').textContent = pass; $('aFail').textContent = got.length - pass;
+      $('aAi').textContent = got.filter((r) => !/^rules/.test(r.readBy)).length + '/' + got.length;
+      $('aiList').innerHTML = got.filter((r) => !r.pass).concat(got.filter((r) => r.pass)).map(aiRow).join('');
+    };
+    streamRun({ count: +$('aiCount').value }, (l) => {
+      if (l.type === 'start') { total = l.total; gen = l.generator; $('aiRun').textContent = 'Reading the cases…'; status('aiStatus', 'Cases written by <b>' + esc(gen.via) + '</b>, model <b>' + esc(gen.model) + '</b>, in ' + (gen.ms / 1000).toFixed(1) + ' s (' + gen.got + ' of ' + gen.asked + ' asked for were usable). Reading them now…'); }
+      else if (l.type === 'case') { got.push(l.result); draw(); }
+      else if (l.type === 'done') {
+        if (!l.ok) { status('aiStatus', esc(l.reason || 'The run failed.'), true); if (!got.length) $('aiList').innerHTML = '<div class="empty">No cases this time.</div>'; return; }
+        aiOut = Object.assign({}, l, { type: undefined, results: got }); draw();
+        $('aTime').textContent = l.calls + ' · ' + (l.ms / 1000).toFixed(1) + ' s';
+        status('aiStatus', 'Cases written by <b>' + esc(l.generator.via) + '</b>, model <b>' + esc(l.generator.model) + '</b>, in ' + (l.generator.ms / 1000).toFixed(1) + ' s (' + l.generator.got + ' of ' + l.generator.asked + ' asked for were usable). ' +
+          (l.labelDisagree ? l.labelDisagree + ' case' + (l.labelDisagree > 1 ? 's' : '') + ' disagree with the model\'s own label (shown, not counted).' : 'No disagreement with the model\'s labels.'));
         $('aiDl').disabled = false;
-      }, () => { aiStatus(offServer, true); aiBlocked = true; $('aiList').innerHTML = '<div class="empty">No cases this time.</div>'; })
-      .then(() => { $('aiRun').disabled = aiBlocked; $('aiRun').textContent = 'Ask Agent37 again'; });
+      }
+    }).catch(() => { block(offServer); if (!got.length) $('aiList').innerHTML = '<div class="empty">No cases this time.</div>'; })
+      .then(() => { $('aiRun').disabled = noModel; $('aiRun').textContent = 'Ask Agent37 again'; });
   });
-  $('aiDl').addEventListener('click', () => {
-    if (!aiOut) return;
-    const blob = new Blob([JSON.stringify(Object.assign({ build: '/*__BUILD__*/', path: 'AI-generated cases, real owner pipeline (AI first, rules), throwaway shop' }, aiOut), null, 1)], { type: 'application/json' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'udhaar-ai-test-run.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  });
+  $('aiDl').addEventListener('click', () => { if (aiOut) save(Object.assign({ path: 'AI-generated cases, real owner pipeline (AI first, rules), throwaway shop' }, aiOut), 'udhaar-ai-test-run.json'); });
 })();
 </script>
 </body>

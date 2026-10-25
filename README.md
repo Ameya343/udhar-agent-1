@@ -93,6 +93,10 @@ Owner:  galti        (undo the last entry)
 
 Itemised bills work too: `Gawande ji ka saman: sabun 40, 2 maggi 24, 2 kilo aata 80`. The agent remembers item rates the owner has used.
 
+**Rate list by voice.** The owner can speak or type a rate list ("aata 40 kilo, cheeni 45, Maggi 14") and the rates are saved. A later bill to a named customer ("Sharma ji: 2 kilo aata, 3 Maggi") is priced from those saved rates.
+
+**AI router for owner messages.** Owner messages go through the AI router first, which reads the intent (entry, payment, balance question, list, supplier, chat) and returns strict JSON; the same safety rules then check it. This also fixes KAN-107. Without the AI, the offline rules handle the message.
+
 ### 4.2 Customer confirmation: Haan / Galat (do-taraf khata)
 
 Every new entry is sent to the customer:
@@ -111,7 +115,10 @@ Customer:          Haan
 Owner:     Sharma ka kitna baaki        → one customer's balance
 Owner:     kaun kaun baaki / aaj ka hisaab / is hafte ka hisaab
 Customer:  kitna baaki hai              → their own balance only
+Customer:  baki?                        → also works as a bare word
 ```
+
+A balance question always wins over a pending order: if a customer has an order waiting and asks "kitna baaki hai", they get their balance, and the order stays where it was.
 
 ### 4.4 Cash and UPI claims, owner ✅/❌
 
@@ -122,7 +129,7 @@ Owner:     ✅
 Agent → Customer:  200 jama ho gaya. Kul baaki 1,040.
 ```
 
-Nothing is credited until the owner confirms. "maine 1,500 gpay kar diya" works the same way. A forwarded bank SMS ("INR 450 credited ... UPI") can be matched to a customer, but this is **simulated SMS parsing, not a live bank or UPI link**. It writes at once only on a known UPI id, a phone number in the UPI id, or the payment link's tag; a name that only looks like a khata ("RAMESH KUMAR" for Ramesh) is asked first: *Ramesh ka hai? haan / nahi*. An SMS for money the owner **sent** ("debited ... to PAPPU") is never written as that person's jama, and the big-amount, paise and ₹1 rules of typed entries apply here too.
+Nothing is credited until the owner confirms. A cash claim is capped at the customer's baaki, so "maine 5000 diye" on a ₹500 khata is never written as ₹5000. "maine 1,500 gpay kar diya" works the same way. A forwarded bank SMS ("INR 450 credited ... UPI") can be matched to a customer, but this is **simulated SMS parsing, not a live bank or UPI link**. It writes at once only on a known UPI id, a phone number in the UPI id, or the payment link's tag; a name that only looks like a khata ("RAMESH KUMAR" for Ramesh) is asked first: *Ramesh ka hai? haan / nahi*. An SMS for money the owner **sent** ("debited ... to PAPPU") is never written as that person's jama, and the big-amount, paise and ₹1 rules of typed entries apply here too.
 
 #### Pay back by UPI QR on WhatsApp: full or part
 
@@ -135,6 +142,8 @@ Agent → Customer:  [QR image: upi://pay ... am=200]  "Kisi bhi UPI app se scan
 
 The customer stays on WhatsApp. "QR bhejo" gets a QR image for the whole baaki; "200 ka QR bhejo" (or "200 pay karna hai") gets one for ₹200. The QR is `upi://pay` with `pa`, `pn`, `am`, `tn=UDH-<id>`, sent as a PNG (scan it from another phone, or from the gallery in any UPI app). The hisaab reply and reminders end with how to ask for it. A link to the customer's own pay page comes along for paying on the same phone: it has a tap-to-pay button and lets them change the amount. Amounts are whole rupees above ₹0 and up to the baaki; asking for more gets the QR for the baaki, and paying extra as advance needs an explicit "Haan" on the page. The QR pays the shop's own UPI ID, which the owner adds once in **Menu → Shop profile → UPI ID for customer payments** (a new shop has none; until it is set, a customer asking for a QR is told to pay cash and the owner is told where to add it). **Nothing is written when a QR is sent**: the khata changes only when the payment is confirmed (the forwarded UPI SMS, or the owner's own "jama").
 
+After a QR is sent, the customer is asked **"Payment ho gaya? 1 = haan, 2 = nahi"**. A "1" (or "haan") does not write anything by itself: the owner gets *Sharma ji keh rahe hain ₹200 QR se diye. Sahi hai?* and only the owner's **haan** credits the khata.
+
 ### 4.5 Reminders (three at most)
 
 With the scheduler on, the agent reminds on the promised date, then about three and seven days later, each a little firmer. **After three reminders it stops** and tells the owner once to talk in person; there is no endless weekly loop. Customers can reply `stop` to opt out. The owner gets an evening summary of the day.
@@ -143,10 +152,11 @@ With the scheduler on, the agent reminds on the promised date, then about three 
 
 ```
 Customer:  2 kilo aata aur 1 Maggi bhej do
-Agent → Owner:  Sharma ji ka order: 2 kilo aata, 1 Maggi. Theek? (rate unknown items are asked)
+Agent → Customer:  Aapka bill: 2 kilo aata ₹80, 1 Maggi ₹14. Kul ₹94.
+Agent → Owner:  Sharma ji ka order: 2 kilo aata ₹80, 1 Maggi ₹14. Theek?
 ```
 
-Orders are written only after the owner's ok. The owner can also write a list for a customer and edit it later:
+A customer order gets an instant itemised bill from the saved rates. If an item has no saved rate, the owner is asked its price ("Dettol ka rate kya hai?") and the bill is completed once the owner answers. Orders are written only after the owner's ok. The owner can also write a list for a customer and edit it later:
 
 ```
 Owner:  Krish ki list: 2 kilo aata 80, 1 sabun 40
@@ -161,7 +171,10 @@ The shop's own credit with its suppliers is a second khata:
 Owner:  Ramesh traders ko 5000 dena hai
 Owner:  aata aur cheeni Ramesh traders se aata hai
 Owner:  stock: 20 kilo aata, 10 kilo cheeni, 5 tel
+Owner:  Ramesh ko supplier banao 98xxxxxxxx, wo doodh deta hai
 ```
+
+A supplier can be added by any name, not only names ending in "traders" or "wholesale": the last line adds Ramesh as a supplier with his number and doodh as his item.
 
 A stock order is split per wholesaler and sent to each one on WhatsApp; their replies (available, arrived, bill) come back to the owner and into the supplier khata.
 
@@ -301,10 +314,11 @@ After the AI, the **safety rules always run**. Replies are written in Hinglish a
 
 | What | Result | Scope |
 |---|---|---|
-| Unit and flow tests (`npm test`) | **319 tests**: 302 pass, 0 fail, 17 skipped | Parser, safety rules, WhatsApp flows, voice, PostgreSQL store, dashboard, stress cases. Tests that need a live database are skipped without one |
+| Unit and flow tests (`npm test`) | **449 tests**: 432 pass, 0 fail, 17 skipped (tests that need a live database are skipped without one) | Parser, safety rules, WhatsApp flows, voice, PostgreSQL store, dashboard, stress cases, plus white-box tests of internal branches |
+| Coverage | about **90.7% of lines** and **91.2% of branches** | Measured with Node's built-in test coverage over the same suite |
 | Stress test | about **7,000** generated messages, **0 open bugs** (every bug found was fixed) | **Rules path only** |
 | Five rounds of manual stress testing | every finding logged in Jira (KAN-15 to KAN-112), fixed with a regression test in `test/st3.test.js`, `test/st4.test.js`, `test/st5.test.js` and others | Rules path, plus the AI path with a mocked model |
-| Live test run (`/test-run` page, or `node livetest/run.js --fails`) | **900** hand-checked Hinglish cases in 15 groups, run live in the browser on a throwaway demo shop. On main 0ab6db0: **886 pass, 14 fail** (two open bugs: "Rs.300" with no space is not read; "Pappu ka bhai" is written on Pappu's khata without asking). Failures are shown with input, expected and actual | **Rules path only**, no model is called. Expected results are written by hand in `livetest/cases.js` |
+| Live test run (`/test-run` page on the running agent, or `node livetest/run.js --fails`; cases and runner live in the `livetest/` folder) | **900** hand-checked Hinglish cases in 15 groups, run live in the browser on a throwaway demo shop: **900 pass, 0 fail** (the two old failures, "Rs.300" and "Pappu ka bhai", are fixed, KAN-121 and KAN-120). Failures are shown with input, expected and actual. Two more sections run on the server with the shop's model (Agent37 LLM router), each case on its own in-memory demo shop, no WhatsApp send, results streamed live: **hand-checked cases on the AI** (a mix from every group, each owner message read by the model first, with the rules-only result beside it) and **AI-generated cases** (the model writes new messages, checked against fixed rules) | The first section is the rules path only. The AI sections spend model calls, so they are capped (`AI_TEST_MAX_FIXED` 40, `AI_TEST_MAX_CASES` 20, `AI_TEST_MAX_PER_HOUR` 6). Expected results are written by hand in `livetest/cases.js` |
 | Understanding eval (`scripts/eval-llm.ts`, seed 7) | **1,500** messages, **93.6% correct, 0 wrong entries**; the other 6.4% were questions back (unknown names), not mistakes | **Rules only** |
 | AI path (model + rules) | **Not measured yet.** We will publish it only once we have real numbers | - |
 

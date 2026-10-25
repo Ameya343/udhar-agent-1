@@ -103,10 +103,10 @@ footer { color: var(--text-3); font-size: 12.5px; margin-top: 26px; }
   </header>
   <ul class="facts">
     <li>Fixed cases: <b>rules parser</b> (no AI model is called)</li>
-    <li>AI-generated cases: <b>Agent37 model + rules</b>, on the server</li>
+    <li>Hand-checked cases on the AI and AI-generated cases: <b>Agent37 model + rules</b>, on the server, live</li>
     <li>Shop: <b>fresh demo shop per case</b></li>
     <li>Cases: <b id="nCases">…</b> in <b id="nCats">…</b> groups</li>
-    <li>Core build: <b>178b93b</b></li>
+    <li>Core build: <b>0765320</b></li>
   </ul>
 
   <section class="kpis" aria-label="Totals">
@@ -134,6 +134,29 @@ footer { color: var(--text-3); font-size: 12.5px; margin-top: 26px; }
     <div id="fails"><div class="empty">No run yet.</div></div>
   </section>
 
+  <section class="ai" aria-labelledby="fxHead">
+    <div class="head">
+      <div>
+        <h2 id="fxHead">Hand-checked cases on the Agent37 AI</h2>
+        <p class="note">A mix of the hand-checked cases above, from every group, now run the way a real owner message runs: the shop's model reads each owner message first, through the Agent37 LLM router, then the rules check it and the khata writes. Each case runs on its own throwaway in-memory demo shop on the server: the live khata is never read or written and no WhatsApp message is sent. The expected answer was written by a person, so a FAIL here is a real bug. Each result also shows whether the rules alone gave the same answer. Results appear one by one as each case finishes.</p>
+      </div>
+      <div class="ctrl">
+        <select id="fxCount" aria-label="How many hand-checked cases"><option value="10">10 cases</option><option value="20" selected>20 cases</option><option value="40">40 cases</option></select>
+        <button class="primary" id="fxRun" type="button">Run on Agent37 AI</button>
+        <button id="fxDl" type="button" disabled>Download</button>
+      </div>
+    </div>
+    <div class="status" id="fxStatus">Checking whether this instance has a model…</div>
+    <section class="kpis" aria-label="Hand-checked AI run totals">
+      <div class="kpi"><small>Cases run</small><b id="fRun">–</b></div>
+      <div class="kpi ok"><small>Passed</small><b id="fPass">–</b></div>
+      <div class="kpi bad"><small>Failed</small><b id="fFail">–</b></div>
+      <div class="kpi"><small>Read by the AI</small><b id="fAi">–</b></div>
+      <div class="kpi"><small>Differs from rules / time</small><b id="fTime">–</b></div>
+    </section>
+    <div class="panel"><div id="fxList"><div class="empty">No AI run yet.</div></div></div>
+  </section>
+
   <section class="ai" aria-labelledby="aiHead">
     <div class="head">
       <div>
@@ -157,7 +180,7 @@ footer { color: var(--text-3); font-size: 12.5px; margin-top: 26px; }
     <div class="panel"><div id="aiList"><div class="empty">No AI run yet.</div></div></div>
   </section>
 
-  <footer>Same cases from the command line: <code>npm run build && node livetest/run.js --fails</code>. The fixed cases do not test the AI model path (the AI-generated cases above do, when the instance has a model), real WhatsApp delivery, Postgres storage and the voice input. Those have their own tests in <code>test/</code>.</footer>
+  <footer>Same cases from the command line: <code>npm run build && node livetest/run.js --fails</code>. The rules-only cases do not test the AI model path (the two AI sections above do, when the instance has a model), real WhatsApp delivery, Postgres storage and the voice input. Those have their own tests in <code>test/</code>.</footer>
 </div>
 <script>
 (function () {
@@ -251,6 +274,7 @@ function factory() {
     function tokenize(text) {
         const t = transliterate(String(text))
             .replace(/₹/g, ' rs ')
+            .replace(/\b(rs|inr)\.(?=\d)/gi, '$1 ') // "Rs.300" is Rs 300 (KAN-121)
             .replace(/(\d),(?=\d)/g, '$1')
             // "1/2 kilo", "3/4 litre": a fraction is a quantity, never two numbers (KAN-83)
             .replace(/(^|[^\d.])(\d)\s*\/\s*([248])(?![\d])/g, (m, pre, a, b) => (+a < +b ? pre + String(+a / +b) : m))
@@ -278,7 +302,9 @@ function factory() {
         'uthaya uthaye uthai uthayi udaar udar udaari udari debit salary tankha tankhwa pagar kuch kuchh kucch ' +
         'jan feb mar apr jun jul aug sep sept oct nov dec january february march april may june july august september october november december tareekh tarikh tareek ' +
         // ST5 (KAN-110): date words and festivals are never items
-        'saal sal varsh baras baad pehle pahle end ant holi diwali divali dipavali eid rakhi janvari farvari';
+        'saal sal varsh baras baad pehle pahle end ant holi diwali divali dipavali eid rakhi janvari farvari ' +
+        // ST6 (KAN-137): a hedge is never an item
+        'shayad sayad shaid shayd sayd maybe perhaps lagbhag';
     const STOP = new Set(('aj abhi bhai are arey arre ha han haan ok okay acha accha suno sun vo voh yeh ye please plz aur or phir fir to toh ' +
         'hamare apne mere mera meri hamara vala vale vali wala wale wali hai h he hain tha thi the ho hoga hogi hua hui ' +
         'kitna kitne kitni baki baaki bakaya balance hisab hisaab khata khate khatha dikha dikhao batao bata bolo bol ' +
@@ -1992,6 +2018,12 @@ function factory() {
      * or null. pairs: [{ name, key, matches, amount }]. A pair whose name the khata does not know is kept (unknown) so
      * the owner is asked; null when a pair's word is an item (a list, not people).
      */
+    function knownItemWord(state, w) {
+        for (const [k, v] of Object.entries(ITEM_SAME))
+            if (tokenize(k + ' ' + v).norm.includes(w))
+                return true;
+        return (state.wholesalers || []).some((ws) => (ws.items || []).some((it) => tokenize(it).norm.includes(w)));
+    }
     function multiIntent(state, text) {
         const clean = cleanTranscript(text);
         const tok = tokenize(clean), n = tok.norm, d = tok.display, T = tok.text;
@@ -2041,10 +2073,10 @@ function factory() {
                 continue;
             }
             const w = n[j];
-            if (j < prevEnd || !isNameish(w) || HONORIFICS.has(w) || prices(state)[w] || !isItemWord(w)) {
+            if (j < prevEnd || !isNameish(w) || HONORIFICS.has(w) || prices(state)[w] || knownItemWord(state, w) || !isItemWord(w)) {
                 ok = false;
                 break;
-            } // "cheeni 50": an item, not a person
+            } // "cheeni 50" / "Pappu: 2 maggi 28": an item, not a person
             pairs.push({ name: prettyName([d[j]]), key: nameKey([w]), matches: [], amount: a.v, unknown: true, type: null, start: j });
             prevEnd = a.end + 1;
         }
@@ -2172,6 +2204,9 @@ function factory() {
      * "diye / de gaya / dile" is jama (the customer gave), except "X ko ... diya" (the shop gave X the goods). null: no cue.
      */
     function entryType(t) {
+        // "Pappu ko 200 wapas diye": the shop gave money back to the customer, a refund that raises the balance (KAN-126)
+        if (/\sko\s/.test(t) && !/\s(ne|ni|se)\s/.test(t) && /\s(vapas|lauta|lautaya|lotaya|lautae|lautaye|lautai|lotae|returned|return|refand|refund)\s/.test(t))
+            return 'credit';
         const gaveTo = /\sko\s/.test(t) && !/\s(ne|ni|se)\s/.test(t) && RX.weakPay.test(t);
         if (gaveTo && !RX.strongPay.test(t.replace(/\s(cash|nakad|nakd|nagad|naqad)\s/g, ' ')))
             return 'credit';
@@ -2291,6 +2326,9 @@ function factory() {
             out.intent = 'promise';
         if (out.intent === 'summary' && out.name && RX.query.test(t) && !RX.all.test(t))
             out.intent = 'query';
+        // "Pappu ko 200 wapas diye": said on the entry, so the khata shows why the balance went up (KAN-126)
+        if (out.intent === 'credit' && !out.items && /\sko\s/.test(t) && /\s(vapas|lauta|lautaya|lotaya|lautae|lautaye|lautai|lotae|returned|return|refand|refund)\s/.test(t))
+            out.items = 'paise wapas diye';
         return ownerSafety(out, t, String(text), today, state);
     }
     const NEGATED = /\s(nahi|nahin|nhi|nai|na|not|mat|didn ?t|did not)\s(diye|diya|dia|die|de|di|liya|liye|lia|lie|mila|mile|chukaya|lautaye|lautae|paid|pay|kiya|kiye|jama)\s/;
@@ -2794,6 +2832,8 @@ function factory() {
         }
         return out.concat(execute(state, intent, cust, reply));
     }
+    // a payment more than this above what the customer owes is asked about first (KAN-131)
+    const OVERPAY_ASK = 5000;
     function execute(state, intent, cust, reply) {
         const out = []; // reply() pushes into the caller's list; reminders land here
         if (cust.removed && (intent.intent === 'credit' || intent.intent === 'remind')) {
@@ -2811,6 +2851,13 @@ function factory() {
         if ((intent.intent === 'credit' || intent.intent === 'payment') && intent.amount > cap && !intent.bigOk) {
             state.pending = { type: 'confirm', what: 'pay', options: [], custId: cust.id, action: Object.assign({}, intent, { bigOk: true, name: cust.name, nameKey: cust.key }) };
             reply('🤔 ' + rupees(intent.amount) + ' bahut badi rakam hai. ' + cust.name + ' ka ' + rupees(intent.amount) + ' ' + (intent.intent === 'credit' ? 'udhaar' : 'jama') + ' sach mein likhoon? *haan* / *nahi*\n(Abhi kuch nahi likha.)', { kind: 'confirm-ask' });
+            return out;
+        }
+        // "Pappu ne 99999 diye" on a ₹170 khata: far more than the balance is likely a typo, so it is asked first (KAN-131)
+        const owed = Math.max(0, balance(state, cust.id));
+        if (intent.intent === 'payment' && !intent.bigOk && !intent.adjust && intent.amount - owed > OVERPAY_ASK && intent.amount > 2 * owed && !/\s(advance|adv|edvans)\s/.test(tokenize(intent.raw || '').text)) {
+            state.pending = { type: 'confirm', what: 'pay', options: [], custId: cust.id, action: Object.assign({}, intent, { bigOk: true, name: cust.name, nameKey: cust.key }) };
+            reply('🤔 ' + cust.name + ' ka baaki sirf ' + balText(balance(state, cust.id)) + ' hai, aur jama ' + rupees(intent.amount) + ' bola. Galti toh nahi? ' + rupees(intent.amount) + ' jama likhoon (' + rupees(intent.amount - owed) + ' advance banega)? *haan* / *nahi*\nGalat ho toh sahi rakam ke saath dobara boliye. (Abhi kuch nahi likha.)', { kind: 'confirm-ask' });
             return out;
         }
         // "Sharma ji 98765 00001 500 udhaar": the number in an entry is always answered, never silently dropped (KAN-96)
@@ -4177,6 +4224,12 @@ function factory() {
         askAlong(state, out);
         return { intent, messages: dedupe(out) };
     }
+    // "shayad", "pakka nahi": the owner is not sure of the entry (KAN-137)
+    const HEDGE = /\s(shayad|sayad|shaid|shayd|sayd|maybe|perhaps|paka nahi|paka nhi|pata nahi|pata nhi|yad nahi|yad nhi|lagta hai|lagbhag)\s/;
+    // words that make a message an entry, not a question about the balance
+    const ENTRY_WORDS = /\s(likh|likho|likh do|liya|liye|lia|lie|le gaya|le gayi|diye|diya|dia|die|de gaya|de gayi|jama|udhar|saman|saaman|mal|chukaya|chuka|lautaye|vapas|bhej|bheje)\s/;
+    // "Pappu ka bhai", "Verma ji ka beta": a relative of a customer, who may need a khata of their own (KAN-120)
+    const RELATIVE = /\s(\S+(?:\s\S+)?)\s(ka|ki|ke)\s(bhai|bhaiya|beta|bete|beti|bahu|biwi|bibi|patni|vife|husband|pati|mumy|mummy|mami|papa|maa|bhabhi|bhabi|behen|bahen|ben|chacha|chachi|sala|dost|ladka|ladke|ladki|pota|poti|nati|bhatija|bhatiji|bhanja|bhanji|devar|naukar|driver)\s/;
     const dedupe = (arr) => arr.filter((m, i) => arr.indexOf(m) === i);
     const USME = /^(.*?)[\s,;.]*(?:aur\s+|or\s+)?(?:usme|usmein|usmen|isme|ismein|unme|unmein|jisme|jismein)\s+(?:se\s+)?(?:₹\s*)?(\d+(?:\.\d+)?)\s*(?:rs|rupaye|rupees|₹)?\s*(?:cash\s+)?(de diye|de diya|de die|diye|diya|die|jama kiye|jama kar diye|jama kiya|jama|chuka diye|lauta diye)\b.*$/i;
     /**
@@ -4190,6 +4243,54 @@ function factory() {
             return { intent: { intent: 'bad-amount' }, messages: say('🤔 Rakam samajh nahi aayi ("' + raw.slice(0, 60) + '"). Seedhe rupaye mein boliye, jaise "Sharma ji ne 500 ka saman liya". (Kuch nahi likha.)', 'fix-ask') };
         const tok = tokenize(raw);
         const numWord = /\s(number|nambar|numbar|nambr|mobile|mobail|phone|fone|fon|whatsapp|vhatsapp|vatsap|contact)\s/.test(tok.text);
+        const again = (t) => handleOwnerText(state, t, Object.assign({}, opts, { intent: undefined }));
+        const one = (n, d) => { const p = peopleIn(state, n, d).filter((x) => x.matches.length === 1); return p.length === 1 ? p[0].matches[0] : null; };
+        // "Iqbal bhai ne shayad 400 liya tha": the owner is not sure, so nothing is written or learned (KAN-137)
+        if (/\d/.test(raw) && HEDGE.test(tok.text)) {
+            return { intent: { intent: 'hedge' }, messages: say('🤔 "Shayad" bola, matlab pakka nahi hai. Pakka pata ho toh seedha boliye, jaise "' + (one(tok.norm, tok.display) || { name: 'Iqbal bhai' }).name + ' ne 400 ka saman liya". Abhi ka baaki dekhna ho toh "hisaab" likhiye. (Kuch nahi likha.)', 'fix-ask') };
+        }
+        // "Patil bhau ne 3200 me se 1000 diye": the money paid is the second number, never the balance it came out of (KAN-138)
+        const outOf = /(\d+(?:\.\d+)?)\s*(?:rs|rupaye|rupees|₹|\/-)?\s*(?:me|mein|main|men|mai|mei)\s+se\s+(?:₹\s*|rs\.?\s*)?(\d+(?:\.\d+)?)/i.exec(raw);
+        if (outOf && !/\s(usme|usmein|isme|ismein|unme|jisme)\s/.test(tok.text)) {
+            if (+outOf[2] > 0 && +outOf[2] <= +outOf[1])
+                return again(raw.slice(0, outOf.index) + outOf[2] + raw.slice(outOf.index + outOf[0].length));
+            return { intent: { intent: 'two-amounts' }, messages: say('🤔 ' + rupees(+outOf[1]) + ' mein se ' + rupees(+outOf[2]) + '? Doosri rakam pehli se badi hai. Jitne mile utne boliye, jaise "Patil bhau ne 1000 diye". (Kuch nahi likha.)', 'fix-ask') };
+        }
+        // "Meena didi ka 700 hai na? usne 200 diye": a check of the balance, then the entry; only the entry is written (KAN-138)
+        const qa = /^(.*?(?:\?|\b(?:hai|tha|the|thi)\s+na\b[\s,.!?]*))\s*(.+)$/i.exec(raw.replace(/\s+/g, ' ').trim());
+        if (qa && /\d/.test(qa[1]) && /\d/.test(qa[2])) {
+            const t2 = tokenize(qa[2]), ty = entryType(t2.text);
+            const who = one(tokenize(qa[1]).norm, tokenize(qa[1]).display);
+            if (ty && who && !peopleIn(state, t2.norm, t2.display).some((p) => p.matches.length)) {
+                const rest = qa[2].replace(/^\s*(usne|usane|unhone|unhonne|isne|inhone|wo|woh|vo|voh|ye|yeh)\b\s*(ne\s+)?/i, '');
+                return again(who.name + (/^\s*(ne|ka|ki|ke|ko)\b/i.test(rest) ? ' ' : ' ne ') + rest);
+            }
+        }
+        // "Pappu ka kitna baaki hai? 500 tha na": a question about the balance; the number in it is never written (KAN-125)
+        if (/\d/.test(raw) && /\s(kitna|kitne|kitni|kitana|kya)\s/.test(tok.text) && /\s(baki|bacha|bache|bakaya|hisab|hai|hain|tha|hua|hue)\s/.test(tok.text) &&
+            (/\?/.test(raw) || /\s(hai|tha|the|thi)\s(na|kya)\s/.test(tok.text)) && !ENTRY_WORDS.test(tok.text) && !looksLikeCounter(text)) {
+            const c = one(tok.norm, tok.display), n = statedAmounts(raw);
+            const said = n.size ? ' Aapne ' + Array.from(n).map((x) => rupees(x)).join(', ') + ' kaha, woh likha nahi.' : '';
+            if (c)
+                return { intent: { intent: 'query', name: c.name }, messages: say('📒 ' + c.name + ' ka baaki: ' + balText(balance(state, c.id)) + '.' + said + ' Likhna ho toh saaf boliye, jaise "' + c.name + ' ne 500 ka saman liya". (Kuch nahi likha.)') };
+            return { intent: { intent: 'query' }, messages: say('🤔 Yeh sawaal hai ya entry?' + said + ' Hisaab ke liye naam boliye, jaise "Pappu ka hisaab". Entry ke liye "Pappu ne 500 ka saman liya". (Kuch nahi likha.)', 'fix-ask') };
+        }
+        // "Pappu ka bhai ne 400 ka saman liya": a relative of a customer is asked about, never put on the customer's khata (KAN-120)
+        const rel = RELATIVE.exec(tok.text);
+        if (rel && /\d/.test(raw)) {
+            const head = tok.norm.slice(0, tok.norm.indexOf(rel[2]));
+            const c = one(tok.norm.slice(0, head.length), tok.display.slice(0, head.length));
+            const p = c && parseOwnerMessage(raw, state.today, state);
+            if (c && p && (p.intent === 'credit' || p.intent === 'payment') && p.amount > 0) {
+                const relWord = tok.display[tok.norm.indexOf(rel[3], head.length)] || rel[3];
+                const name = c.name + ' ' + rel[2] + ' ' + relWord.toLowerCase(), key = c.key + ' ' + rel[2] + ' ' + rel[3];
+                const action = Object.assign({}, p, { name, nameKey: key, matches: undefined, raw, source: opts.source || 'text', lineParse: null });
+                state.pending = { type: 'confirm', what: 'loose-cust', options: [], custId: c.id, action };
+                const word = p.intent === 'credit' ? 'udhaar' : 'jama';
+                return { intent: { intent: 'relative-ask', name }, messages: say('🤔 "' + name + '" ka ' + rupees(p.amount) + ' ' + word + ': ' + c.name + ' ke khate mein likhun, ya "' + name + '" ka naya khata?\n*haan* = ' + c.name + ' ke khate mein' +
+                        (p.intent === 'credit' ? '\n*naya* = "' + name + '" ka naya khata' : '') + '\n*nahi* = kuch nahi\n(Abhi kuch nahi likha.)', 'confirm-ask') };
+            }
+        }
         // two bare numbers side by side ("200 300", "200-300", "5 0 0") for one entry: ask, never pick one
         const pair = /(?:^|[\s₹(])(\d+(?:\.\d+)?)((?:\s*(?:-|–|\/|\s|\bya\b|\bor\b|\bto\b)\s*\d+(?:\.\d+)?)+)(?=$|[\s.,!?)])/i.exec(raw);
         if (pair && !numWord && !/\b[6-9]\d{9}\b/.test(raw) && !listIntent(state, text) && !multiIntent(state, text) && !UNITS.test(normWord((raw.slice(pair.index + pair[0].length).trim().split(/\s+/)[0] || '').toLowerCase()))) {
@@ -6999,8 +7100,10 @@ self.UdhaarCore = module.exports;
 });
 
 // Runs one case from livetest/cases.js against the compiled core, on its own throwaway demo shop (never the live khata),
-// and compares what the khata actually did with the hand-written expectation. Owner text goes through the rules parser only:
-// no model is called. Works in Node (module.exports) and in the page (self.UdhaarRunner).
+// and compares what the khata actually did with the hand-written expectation. runCase: owner text goes through the rules
+// parser only, no model is called. runCaseAi: each owner message is first read by the model (read(state, text) gives the
+// intent, as the server's brain.understandOwner does), then the same khata code runs; the server uses it for /test-run's
+// "hand-checked cases on the AI" (server/ai-test.ts). Works in Node (module.exports) and in the page (self.UdhaarRunner).
 (function (root, make) { if (typeof module === 'object' && module.exports) module.exports = make(); else root.UdhaarRunner = make(); })(typeof self !== 'undefined' ? self : this, function () {
   const rupee = (n) => '₹' + n;
   const show = (w) => w.map(([t, k, a]) => (t === 'credit' ? 'udhaar ' : 'jama ') + k + ' ' + rupee(a)).join(', ') || 'nothing written';
@@ -7013,7 +7116,8 @@ self.UdhaarCore = module.exports;
     if ('pay' in e) p.push(e.pay === false ? 'amount refused' : 'pay ' + rupee(e.pay));
     return p.join('; ');
   }
-  function runCase(C, kase, today) {
+  // one case, step by step: yields { state, text } before each owner message and takes back the model's intent (or nothing)
+  function* walk(C, kase, today) {
     const s = C.freshShop('gupta', today);
     const byName = (k) => s.customers.find((c) => c.name === k);
     const nameOf = (id) => { const c = s.customers.find((x) => x.id === id); return c ? c.name : id; };
@@ -7026,7 +7130,7 @@ self.UdhaarCore = module.exports;
       const before = JSON.stringify(s.txns), n = s.txns.length, m = s.messages.length;
       let got = '';
       try {
-        if (st.who === 'owner') C.runAction(s, 'owner', { text: st.text, source: 'text' });
+        if (st.who === 'owner') { const intent = yield { state: s, text: st.text }; C.runAction(s, 'owner', intent ? { text: st.text, source: 'text', intent } : { text: st.text, source: 'text' }); }
         else if (st.who === 'upi') C.runAction(s, 'upi', { text: st.text });
         else if (st.who === 'pay') {
           const r = C.payAmount(s, byName(st.cust).id, st.text);
@@ -7060,7 +7164,28 @@ self.UdhaarCore = module.exports;
     out.actual = actual.join('  ⏎  ');
     return out;
   }
-  return { runCase, describe };
+  function runCase(C, kase, today) {
+    const g = walk(C, kase, today);
+    let r = g.next();
+    while (!r.done) r = g.next();
+    return r.value;
+  }
+  /** The same case with the model reading each owner message first; read's failure counts as the rules reading it. */
+  async function runCaseAi(C, kase, today, read) {
+    const g = walk(C, kase, today), by = [];
+    let r = g.next(), ms = 0;
+    while (!r.done) {
+      let intent = null;
+      try {
+        intent = await read(r.value.state, r.value.text);
+        if (intent && intent.ms != null) ms += intent.ms;
+        by.push(intent && intent.provider ? 'ai' : 'rules');
+      } catch (e) { by.push('rules'); }
+      r = g.next(intent || undefined);
+    }
+    return Object.assign(r.value, { readBy: by, ms });
+  }
+  return { runCase, runCaseAi, describe };
 });
 
 </script>
@@ -7131,19 +7256,78 @@ self.UdhaarCore = module.exports;
   $('onlyFails').addEventListener('change', drawStream);
   $('dl').addEventListener('click', () => {
     const pass = results.filter((r) => r.pass).length;
-    const blob = new Blob([JSON.stringify({ build: '178b93b', path: 'rules parser, no AI model', pass, total: results.length, byCategory: by, results }, null, 1)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ build: '0765320', path: 'rules parser, no AI model', pass, total: results.length, byCategory: by, results }, null, 1)], { type: 'application/json' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'udhaar-test-run.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   });
   drawCats();
 
-  // AI-generated cases: the server asks the model (server/ai-test.ts); this page only shows the result
-  let aiOut = null, aiBlocked = false;
-  const aiStatus = (html, warn) => { $('aiStatus').innerHTML = html; $('aiStatus').className = 'status' + (warn ? ' warn' : ''); };
+  // The AI runs: the server asks the model (server/ai-test.ts) and streams one JSON line per case; this page only shows them
+  let aiOut = null, fxOut = null, noModel = false;
+  const status = (id, html, warn) => { $(id).innerHTML = html; $(id).className = 'status' + (warn ? ' warn' : ''); };
   const offServer = 'This copy of the page is not served by a shop instance, so there is no model to ask. Open <b>/test-run</b> on the running shop (for example the Agent37 instance).';
+  const block = (html) => { noModel = true; for (const id of ['aiStatus', 'fxStatus']) status(id, html, true); $('aiRun').disabled = $('fxRun').disabled = true; };
   fetch('/api/ai-test').then((r) => r.ok ? r.json() : Promise.reject(r.status)).then((j) => {
-    if (j.enabled) aiStatus('Model chain on this instance: <b>' + esc(j.chain) + '</b> → rules. Up to ' + j.maxCases + ' cases per run, a few runs per hour (they spend the shop\'s model credits).');
-    else { aiStatus('No model on this instance: <b>AGENT37_LLM_PROXY_URL</b> and <b>LLM_BASE_URL</b> are unset, so the AI cannot write cases here. The fixed cases above still run.', true); aiBlocked = $('aiRun').disabled = true; }
-  }, () => { aiStatus(offServer, true); aiBlocked = $('aiRun').disabled = true; });
+    if (!j.enabled) return block('No model on this instance: <b>AGENT37_LLM_PROXY_URL</b> and <b>LLM_BASE_URL</b> are unset, so the AI cannot run cases here. The rules-only cases above still run.');
+    status('aiStatus', 'Model chain on this instance: <b>' + esc(j.chain) + '</b> → rules. Up to ' + j.maxCases + ' cases per run, a few runs per hour (they spend the shop\'s model credits).');
+    status('fxStatus', 'Model chain on this instance: <b>' + esc(j.chain) + '</b> → rules. Up to ' + (j.maxFixed || 40) + ' cases per run; each owner message is one model call.');
+  }, () => block(offServer));
+  /** POST a run and call onLine for each JSON line as it arrives (a browser without streams gets them all at the end). */
+  async function streamRun(body, onLine) {
+    const r = await fetch('/api/ai-test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ stream: true }, body)) });
+    if (!r.ok) { let j = {}; try { j = await r.json(); } catch (e) {} onLine({ type: 'done', ok: false, reason: j.error || ('HTTP ' + r.status) }); return; }
+    if (!r.body || !r.body.getReader) { for (const l of (await r.text()).split('\n')) if (l.trim()) onLine(JSON.parse(l)); return; }
+    const rd = r.body.getReader(), dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await rd.read();
+      if (value) buf += dec.decode(value, { stream: true });
+      let k;
+      while ((k = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, k); buf = buf.slice(k + 1); if (l.trim()) onLine(JSON.parse(l)); }
+      if (done) break;
+    }
+    if (buf.trim()) onLine(JSON.parse(buf));
+  }
+  const save = (obj, name) => { const blob = new Blob([JSON.stringify(Object.assign({ build: '0765320' }, obj), null, 1)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
+
+  // hand-checked cases on the AI
+  function fxRow(r) {
+    const by = r.readBy.length ? (r.readBy.every((b) => b === 'ai') ? 'AI' : r.readBy.every((b) => b === 'rules') ? 'rules (AI did not answer)' : 'AI + rules') : 'no owner message';
+    const same = r.pass === r.rulesPass && r.actual === r.rulesActual;
+    return '<div class="row"><span class="id">#' + r.id + '</span><span class="chip ' + (r.pass ? 'p">PASS' : 'f">FAIL') + '</span><span class="in">' + esc(r.input) +
+      '<span class="got">expected: ' + esc(r.expected) + '</span><span class="got">→ ' + esc(r.actual) + ' · read by ' + esc(by) + (r.ms ? ' in ' + r.ms + ' ms' : '') + '</span>' +
+      (r.why.length ? '<span class="got" style="color:var(--red-t)">✗ ' + esc(r.why.join('; ')) + '</span>' : '') +
+      (same ? '' : '<span class="lbl">rules alone: ' + (r.rulesPass ? 'PASS' : 'FAIL') + ', ' + esc(r.rulesActual) + '</span>') +
+      (r.reply ? '<span class="got">agent: ' + esc(r.reply) + '</span>' : '') + '</span></div>';
+  }
+  $('fxRun').addEventListener('click', () => {
+    const got = [], t0 = Date.now();
+    let total = 0;
+    $('fxRun').disabled = true; $('fxDl').disabled = true; $('fxRun').textContent = 'Running on Agent37…';
+    $('fxList').innerHTML = '<div class="empty">Waiting for the first case. Each owner message is one model call, a second or two each.</div>';
+    for (const id of ['fRun', 'fPass', 'fFail', 'fAi', 'fTime']) $(id).textContent = '–';
+    const draw = () => {
+      const pass = got.filter((r) => r.pass).length, differ = got.filter((r) => r.pass !== r.rulesPass || r.actual !== r.rulesActual).length;
+      $('fRun').textContent = got.length + (total ? '/' + total : ''); $('fPass').textContent = pass; $('fFail').textContent = got.length - pass;
+      $('fAi').textContent = got.filter((r) => r.readBy.length && r.readBy.every((b) => b === 'ai')).length + '/' + got.length;
+      $('fTime').textContent = differ + ' · ' + ((Date.now() - t0) / 1000).toFixed(0) + ' s';
+      $('fxList').innerHTML = got.filter((r) => !r.pass).concat(got.filter((r) => r.pass)).map(fxRow).join('');
+    };
+    streamRun({ mode: 'fixed', count: +$('fxCount').value }, (l) => {
+      if (l.type === 'start') { total = l.total; status('fxStatus', 'Running ' + l.total + ' of the ' + l.of + ' hand-checked cases on <b>' + esc(l.chain) + '</b>…'); }
+      else if (l.type === 'case') { got.push(l.result); draw(); }
+      else if (l.type === 'done') {
+        if (!l.ok) { status('fxStatus', esc(l.reason || 'The run failed.'), true); if (!got.length) $('fxList').innerHTML = '<div class="empty">No cases this time.</div>'; return; }
+        fxOut = Object.assign({}, l, { type: undefined, results: got }); draw();
+        $('fTime').textContent = l.differ + ' · ' + (l.ms / 1000).toFixed(1) + ' s';
+        status('fxStatus', 'Done: ' + l.pass + ' of ' + got.length + ' passed on <b>' + esc(l.chain) + '</b>, ' + l.calls + ' model calls. ' + (l.differ ? l.differ + ' case' + (l.differ > 1 ? 's' : '') + ' came out different from the rules alone (shown in amber).' : 'Every case came out the same as the rules alone.'));
+        $('fxDl').disabled = false;
+      }
+    }).catch(() => { block(offServer); if (!got.length) $('fxList').innerHTML = '<div class="empty">No cases this time.</div>'; })
+      .then(() => { $('fxRun').disabled = noModel; $('fxRun').textContent = 'Run again on Agent37 AI'; });
+  });
+  $('fxDl').addEventListener('click', () => { if (fxOut) save(Object.assign({ path: 'hand-checked cases, real owner pipeline (AI first, rules), throwaway shop' }, fxOut), 'udhaar-ai-fixed-run.json'); });
+
+  // AI-generated cases
   function aiRow(r) {
     const why = r.why.length ? '<span class="got" style="color:var(--red-t)">✗ ' + esc(r.why.join('; ')) + '</span>' : '';
     const lbl = r.labelWhy.length ? '<span class="lbl">label: ' + esc(r.labelWhy.join('; ')) + '</span>' : '';
@@ -7153,28 +7337,32 @@ self.UdhaarCore = module.exports;
       (r.reply ? '<span class="got">agent: ' + esc(r.reply) + '</span>' : '') + why + lbl + '</span></div>';
   }
   $('aiRun').addEventListener('click', () => {
+    const got = [];
+    let total = 0, gen = null;
     $('aiRun').disabled = true; $('aiDl').disabled = true; $('aiRun').textContent = 'Agent37 is writing cases…';
-    $('aiList').innerHTML = '<div class="empty">Waiting for the model. Each case is one more model call, so 10 cases take about 10 to 40 seconds.</div>';
-    fetch('/api/ai-test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ count: +$('aiCount').value }) })
-      .then((r) => r.json().then((j) => (r.ok ? j : { ok: false, reason: j.error || ('HTTP ' + r.status) })))
-      .then((j) => {
-        if (!j.ok) { aiStatus(esc(j.reason || 'The run failed.'), true); $('aiList').innerHTML = '<div class="empty">No cases this time.</div>'; return; }
-        aiOut = j;
-        aiStatus('Cases written by <b>' + esc(j.generator.via) + '</b>, model <b>' + esc(j.generator.model) + '</b>, in ' + (j.generator.ms / 1000).toFixed(1) + ' s (' + j.generator.got + ' of ' + j.generator.asked + ' asked for were usable). ' +
-          (j.labelDisagree ? j.labelDisagree + ' case' + (j.labelDisagree > 1 ? 's' : '') + ' disagree with the model\'s own label (shown, not counted).' : 'No disagreement with the model\'s labels.'));
-        $('aRun').textContent = j.results.length; $('aPass').textContent = j.pass; $('aFail').textContent = j.fail;
-        $('aAi').textContent = j.aiRead + '/' + j.results.length; $('aTime').textContent = j.calls + ' · ' + (j.ms / 1000).toFixed(1) + ' s';
-        const fails = j.results.filter((r) => !r.pass), rest = j.results.filter((r) => r.pass);
-        $('aiList').innerHTML = fails.concat(rest).map(aiRow).join('');
+    $('aiList').innerHTML = '<div class="empty">Waiting for the model to write the cases (10 to 30 seconds), then each one shows here as it is read.</div>';
+    for (const id of ['aRun', 'aPass', 'aFail', 'aAi', 'aTime']) $(id).textContent = '–';
+    const draw = () => {
+      const pass = got.filter((r) => r.pass).length;
+      $('aRun').textContent = got.length + (total ? '/' + total : ''); $('aPass').textContent = pass; $('aFail').textContent = got.length - pass;
+      $('aAi').textContent = got.filter((r) => !/^rules/.test(r.readBy)).length + '/' + got.length;
+      $('aiList').innerHTML = got.filter((r) => !r.pass).concat(got.filter((r) => r.pass)).map(aiRow).join('');
+    };
+    streamRun({ count: +$('aiCount').value }, (l) => {
+      if (l.type === 'start') { total = l.total; gen = l.generator; $('aiRun').textContent = 'Reading the cases…'; status('aiStatus', 'Cases written by <b>' + esc(gen.via) + '</b>, model <b>' + esc(gen.model) + '</b>, in ' + (gen.ms / 1000).toFixed(1) + ' s (' + gen.got + ' of ' + gen.asked + ' asked for were usable). Reading them now…'); }
+      else if (l.type === 'case') { got.push(l.result); draw(); }
+      else if (l.type === 'done') {
+        if (!l.ok) { status('aiStatus', esc(l.reason || 'The run failed.'), true); if (!got.length) $('aiList').innerHTML = '<div class="empty">No cases this time.</div>'; return; }
+        aiOut = Object.assign({}, l, { type: undefined, results: got }); draw();
+        $('aTime').textContent = l.calls + ' · ' + (l.ms / 1000).toFixed(1) + ' s';
+        status('aiStatus', 'Cases written by <b>' + esc(l.generator.via) + '</b>, model <b>' + esc(l.generator.model) + '</b>, in ' + (l.generator.ms / 1000).toFixed(1) + ' s (' + l.generator.got + ' of ' + l.generator.asked + ' asked for were usable). ' +
+          (l.labelDisagree ? l.labelDisagree + ' case' + (l.labelDisagree > 1 ? 's' : '') + ' disagree with the model\'s own label (shown, not counted).' : 'No disagreement with the model\'s labels.'));
         $('aiDl').disabled = false;
-      }, () => { aiStatus(offServer, true); aiBlocked = true; $('aiList').innerHTML = '<div class="empty">No cases this time.</div>'; })
-      .then(() => { $('aiRun').disabled = aiBlocked; $('aiRun').textContent = 'Ask Agent37 again'; });
+      }
+    }).catch(() => { block(offServer); if (!got.length) $('aiList').innerHTML = '<div class="empty">No cases this time.</div>'; })
+      .then(() => { $('aiRun').disabled = noModel; $('aiRun').textContent = 'Ask Agent37 again'; });
   });
-  $('aiDl').addEventListener('click', () => {
-    if (!aiOut) return;
-    const blob = new Blob([JSON.stringify(Object.assign({ build: '178b93b', path: 'AI-generated cases, real owner pipeline (AI first, rules), throwaway shop' }, aiOut), null, 1)], { type: 'application/json' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'udhaar-ai-test-run.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  });
+  $('aiDl').addEventListener('click', () => { if (aiOut) save(Object.assign({ path: 'AI-generated cases, real owner pipeline (AI first, rules), throwaway shop' }, aiOut), 'udhaar-ai-test-run.json'); });
 })();
 </script>
 </body>

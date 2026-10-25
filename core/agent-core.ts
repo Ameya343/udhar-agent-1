@@ -100,6 +100,7 @@ function factory() {
   function tokenize(text: unknown): Tokens {
     const t = transliterate(String(text))
       .replace(/₹/g, ' rs ')
+      .replace(/\b(rs|inr)\.(?=\d)/gi, '$1 ') // "Rs.300" is Rs 300 (KAN-121)
       .replace(/(\d),(?=\d)/g, '$1')
       // "1/2 kilo", "3/4 litre": a fraction is a quantity, never two numbers (KAN-83)
       .replace(/(^|[^\d.])(\d)\s*\/\s*([248])(?![\d])/g, (m: string, pre: string, a: string, b: string) => (+a < +b ? pre + String(+a / +b) : m))
@@ -127,7 +128,9 @@ function factory() {
     'uthaya uthaye uthai uthayi udaar udar udaari udari debit salary tankha tankhwa pagar kuch kuchh kucch ' +
     'jan feb mar apr jun jul aug sep sept oct nov dec january february march april may june july august september october november december tareekh tarikh tareek ' +
     // ST5 (KAN-110): date words and festivals are never items
-    'saal sal varsh baras baad pehle pahle end ant holi diwali divali dipavali eid rakhi janvari farvari';
+    'saal sal varsh baras baad pehle pahle end ant holi diwali divali dipavali eid rakhi janvari farvari ' +
+    // ST6 (KAN-137): a hedge is never an item
+    'shayad sayad shaid shayd sayd maybe perhaps lagbhag';
   const STOP = new Set(('aj abhi bhai are arey arre ha han haan ok okay acha accha suno sun vo voh yeh ye please plz aur or phir fir to toh ' +
     'hamare apne mere mera meri hamara vala vale vali wala wale wali hai h he hain tha thi the ho hoga hogi hua hui ' +
     'kitna kitne kitni baki baaki bakaya balance hisab hisaab khata khate khatha dikha dikhao batao bata bolo bol ' +
@@ -1325,6 +1328,10 @@ function factory() {
    * or null. pairs: [{ name, key, matches, amount }]. A pair whose name the khata does not know is kept (unknown) so
    * the owner is asked; null when a pair's word is an item (a list, not people).
    */
+  function knownItemWord(state: State, w: string): boolean { // a common grocery word or a wholesaler's item, even with no rate yet
+    for (const [k, v] of Object.entries(ITEM_SAME)) if (tokenize(k + ' ' + v).norm.includes(w)) return true;
+    return (state.wholesalers || []).some((ws) => (ws.items || []).some((it) => tokenize(it).norm.includes(w)));
+  }
   function multiIntent(state: State, text: string): MultiIntent | null {
     const clean = cleanTranscript(text);
     const tok = tokenize(clean), n = tok.norm, d = tok.display, T = tok.text;
@@ -1365,7 +1372,7 @@ function factory() {
         prevEnd = a.end + 1; continue;
       }
       const w = n[j];
-      if (j < prevEnd || !isNameish(w) || HONORIFICS.has(w) || prices(state)[w] || !isItemWord(w)) { ok = false; break; } // "cheeni 50": an item, not a person
+      if (j < prevEnd || !isNameish(w) || HONORIFICS.has(w) || prices(state)[w] || knownItemWord(state, w) || !isItemWord(w)) { ok = false; break; } // "cheeni 50" / "Pappu: 2 maggi 28": an item, not a person
       pairs.push({ name: prettyName([d[j]]), key: nameKey([w]), matches: [], amount: a.v, unknown: true, type: null, start: j });
       prevEnd = a.end + 1;
     }
@@ -1461,6 +1468,8 @@ function factory() {
    * "diye / de gaya / dile" is jama (the customer gave), except "X ko ... diya" (the shop gave X the goods). null: no cue.
    */
   function entryType(t: string): TxnType | null {
+    // "Pappu ko 200 wapas diye": the shop gave money back to the customer, a refund that raises the balance (KAN-126)
+    if (/\sko\s/.test(t) && !/\s(ne|ni|se)\s/.test(t) && /\s(vapas|lauta|lautaya|lotaya|lautae|lautaye|lautai|lotae|returned|return|refand|refund)\s/.test(t)) return 'credit';
     const gaveTo = /\sko\s/.test(t) && !/\s(ne|ni|se)\s/.test(t) && RX.weakPay.test(t);
     if (gaveTo && !RX.strongPay.test(t.replace(/\s(cash|nakad|nakd|nagad|naqad)\s/g, ' '))) return 'credit';
     if (RX.strongPay.test(t)) return 'payment';
@@ -1532,6 +1541,8 @@ function factory() {
     else if (RX.help.test(t)) out.intent = 'help';
     else if (dueInfo.due && out.name) out.intent = 'promise';
     if (out.intent === 'summary' && out.name && RX.query.test(t) && !RX.all.test(t)) out.intent = 'query';
+    // "Pappu ko 200 wapas diye": said on the entry, so the khata shows why the balance went up (KAN-126)
+    if (out.intent === 'credit' && !out.items && /\sko\s/.test(t) && /\s(vapas|lauta|lautaya|lotaya|lautae|lautaye|lautai|lotae|returned|return|refand|refund)\s/.test(t)) out.items = 'paise wapas diye';
     return ownerSafety(out, t, String(text), today, state);
   }
   const NEGATED = /\s(nahi|nahin|nhi|nai|na|not|mat|didn ?t|did not)\s(diye|diya|dia|die|de|di|liya|liye|lia|lie|mila|mile|chukaya|lautaye|lautae|paid|pay|kiya|kiye|jama)\s/;
@@ -1916,6 +1927,8 @@ function factory() {
     return out.concat(execute(state, intent, cust, reply));
   }
 
+  // a payment more than this above what the customer owes is asked about first (KAN-131)
+  const OVERPAY_ASK = 5000;
   function execute(state: State, intent: OwnerIntent, cust: Customer, reply: Reply): Message[] {
     const out: Message[] = []; // reply() pushes into the caller's list; reminders land here
     if (cust.removed && (intent.intent === 'credit' || intent.intent === 'remind')) {
@@ -1933,6 +1946,13 @@ function factory() {
     if ((intent.intent === 'credit' || intent.intent === 'payment') && intent.amount! > cap && !intent.bigOk) {
       state.pending = { type: 'confirm', what: 'pay', options: [], custId: cust.id, action: Object.assign({}, intent, { bigOk: true, name: cust.name, nameKey: cust.key }) };
       reply('🤔 ' + rupees(intent.amount!) + ' bahut badi rakam hai. ' + cust.name + ' ka ' + rupees(intent.amount!) + ' ' + (intent.intent === 'credit' ? 'udhaar' : 'jama') + ' sach mein likhoon? *haan* / *nahi*\n(Abhi kuch nahi likha.)', { kind: 'confirm-ask' });
+      return out;
+    }
+    // "Pappu ne 99999 diye" on a ₹170 khata: far more than the balance is likely a typo, so it is asked first (KAN-131)
+    const owed = Math.max(0, balance(state, cust.id));
+    if (intent.intent === 'payment' && !intent.bigOk && !intent.adjust && intent.amount! - owed > OVERPAY_ASK && intent.amount! > 2 * owed && !/\s(advance|adv|edvans)\s/.test(tokenize(intent.raw || '').text)) {
+      state.pending = { type: 'confirm', what: 'pay', options: [], custId: cust.id, action: Object.assign({}, intent, { bigOk: true, name: cust.name, nameKey: cust.key }) };
+      reply('🤔 ' + cust.name + ' ka baaki sirf ' + balText(balance(state, cust.id)) + ' hai, aur jama ' + rupees(intent.amount!) + ' bola. Galti toh nahi? ' + rupees(intent.amount!) + ' jama likhoon (' + rupees(intent.amount! - owed) + ' advance banega)? *haan* / *nahi*\nGalat ho toh sahi rakam ke saath dobara boliye. (Abhi kuch nahi likha.)', { kind: 'confirm-ask' });
       return out;
     }
     // "Sharma ji 98765 00001 500 udhaar": the number in an entry is always answered, never silently dropped (KAN-96)
@@ -2956,6 +2976,12 @@ function factory() {
     askAlong(state, out);
     return { intent, messages: dedupe(out) };
   }
+  // "shayad", "pakka nahi": the owner is not sure of the entry (KAN-137)
+  const HEDGE = /\s(shayad|sayad|shaid|shayd|sayd|maybe|perhaps|paka nahi|paka nhi|pata nahi|pata nhi|yad nahi|yad nhi|lagta hai|lagbhag)\s/;
+  // words that make a message an entry, not a question about the balance
+  const ENTRY_WORDS = /\s(likh|likho|likh do|liya|liye|lia|lie|le gaya|le gayi|diye|diya|dia|die|de gaya|de gayi|jama|udhar|saman|saaman|mal|chukaya|chuka|lautaye|vapas|bhej|bheje)\s/;
+  // "Pappu ka bhai", "Verma ji ka beta": a relative of a customer, who may need a khata of their own (KAN-120)
+  const RELATIVE = /\s(\S+(?:\s\S+)?)\s(ka|ki|ke)\s(bhai|bhaiya|beta|bete|beti|bahu|biwi|bibi|patni|vife|husband|pati|mumy|mummy|mami|papa|maa|bhabhi|bhabi|behen|bahen|ben|chacha|chachi|sala|dost|ladka|ladke|ladki|pota|poti|nati|bhatija|bhatiji|bhanja|bhanji|devar|naukar|driver)\s/;
   const dedupe = (arr: Message[]): Message[] => arr.filter((m, i) => arr.indexOf(m) === i);
   const USME = /^(.*?)[\s,;.]*(?:aur\s+|or\s+)?(?:usme|usmein|usmen|isme|ismein|unme|unmein|jisme|jismein)\s+(?:se\s+)?(?:₹\s*)?(\d+(?:\.\d+)?)\s*(?:rs|rupaye|rupees|₹)?\s*(?:cash\s+)?(de diye|de diya|de die|diye|diya|die|jama kiye|jama kar diye|jama kiya|jama|chuka diye|lauta diye)\b.*$/i;
   /**
@@ -2968,6 +2994,52 @@ function factory() {
     if (/\b\d+(\.\d+)?e[+-]?\d+\b|\b0x[0-9a-f]+\b/i.test(raw)) return { intent: { intent: 'bad-amount' }, messages: say('🤔 Rakam samajh nahi aayi ("' + raw.slice(0, 60) + '"). Seedhe rupaye mein boliye, jaise "Sharma ji ne 500 ka saman liya". (Kuch nahi likha.)', 'fix-ask') };
     const tok = tokenize(raw);
     const numWord = /\s(number|nambar|numbar|nambr|mobile|mobail|phone|fone|fon|whatsapp|vhatsapp|vatsap|contact)\s/.test(tok.text);
+    const again = (t: string) => handleOwnerText(state, t, Object.assign({}, opts, { intent: undefined }));
+    const one = (n: string[], d: string[]) => { const p = peopleIn(state, n, d).filter((x) => x.matches.length === 1); return p.length === 1 ? p[0].matches[0] : null; };
+    // "Iqbal bhai ne shayad 400 liya tha": the owner is not sure, so nothing is written or learned (KAN-137)
+    if (/\d/.test(raw) && HEDGE.test(tok.text)) {
+      return { intent: { intent: 'hedge' }, messages: say('🤔 "Shayad" bola, matlab pakka nahi hai. Pakka pata ho toh seedha boliye, jaise "' + (one(tok.norm, tok.display) || { name: 'Iqbal bhai' }).name + ' ne 400 ka saman liya". Abhi ka baaki dekhna ho toh "hisaab" likhiye. (Kuch nahi likha.)', 'fix-ask') };
+    }
+    // "Patil bhau ne 3200 me se 1000 diye": the money paid is the second number, never the balance it came out of (KAN-138)
+    const outOf = /(\d+(?:\.\d+)?)\s*(?:rs|rupaye|rupees|₹|\/-)?\s*(?:me|mein|main|men|mai|mei)\s+se\s+(?:₹\s*|rs\.?\s*)?(\d+(?:\.\d+)?)/i.exec(raw);
+    if (outOf && !/\s(usme|usmein|isme|ismein|unme|jisme)\s/.test(tok.text)) {
+      if (+outOf[2] > 0 && +outOf[2] <= +outOf[1]) return again(raw.slice(0, outOf.index) + outOf[2] + raw.slice(outOf.index + outOf[0].length));
+      return { intent: { intent: 'two-amounts' }, messages: say('🤔 ' + rupees(+outOf[1]) + ' mein se ' + rupees(+outOf[2]) + '? Doosri rakam pehli se badi hai. Jitne mile utne boliye, jaise "Patil bhau ne 1000 diye". (Kuch nahi likha.)', 'fix-ask') };
+    }
+    // "Meena didi ka 700 hai na? usne 200 diye": a check of the balance, then the entry; only the entry is written (KAN-138)
+    const qa = /^(.*?(?:\?|\b(?:hai|tha|the|thi)\s+na\b[\s,.!?]*))\s*(.+)$/i.exec(raw.replace(/\s+/g, ' ').trim());
+    if (qa && /\d/.test(qa[1]) && /\d/.test(qa[2])) {
+      const t2 = tokenize(qa[2]), ty = entryType(t2.text);
+      const who = one(tokenize(qa[1]).norm, tokenize(qa[1]).display);
+      if (ty && who && !peopleIn(state, t2.norm, t2.display).some((p) => p.matches.length)) {
+        const rest = qa[2].replace(/^\s*(usne|usane|unhone|unhonne|isne|inhone|wo|woh|vo|voh|ye|yeh)\b\s*(ne\s+)?/i, '');
+        return again(who.name + (/^\s*(ne|ka|ki|ke|ko)\b/i.test(rest) ? ' ' : ' ne ') + rest);
+      }
+    }
+    // "Pappu ka kitna baaki hai? 500 tha na": a question about the balance; the number in it is never written (KAN-125)
+    if (/\d/.test(raw) && /\s(kitna|kitne|kitni|kitana|kya)\s/.test(tok.text) && /\s(baki|bacha|bache|bakaya|hisab|hai|hain|tha|hua|hue)\s/.test(tok.text) &&
+      (/\?/.test(raw) || /\s(hai|tha|the|thi)\s(na|kya)\s/.test(tok.text)) && !ENTRY_WORDS.test(tok.text) && !looksLikeCounter(text)) {
+      const c = one(tok.norm, tok.display), n = statedAmounts(raw);
+      const said = n.size ? ' Aapne ' + Array.from(n).map((x) => rupees(x)).join(', ') + ' kaha, woh likha nahi.' : '';
+      if (c) return { intent: { intent: 'query', name: c.name } as HandledIntent, messages: say('📒 ' + c.name + ' ka baaki: ' + balText(balance(state, c.id)) + '.' + said + ' Likhna ho toh saaf boliye, jaise "' + c.name + ' ne 500 ka saman liya". (Kuch nahi likha.)') };
+      return { intent: { intent: 'query' }, messages: say('🤔 Yeh sawaal hai ya entry?' + said + ' Hisaab ke liye naam boliye, jaise "Pappu ka hisaab". Entry ke liye "Pappu ne 500 ka saman liya". (Kuch nahi likha.)', 'fix-ask') };
+    }
+    // "Pappu ka bhai ne 400 ka saman liya": a relative of a customer is asked about, never put on the customer's khata (KAN-120)
+    const rel = RELATIVE.exec(tok.text);
+    if (rel && /\d/.test(raw)) {
+      const head = tok.norm.slice(0, tok.norm.indexOf(rel[2]));
+      const c = one(tok.norm.slice(0, head.length), tok.display.slice(0, head.length));
+      const p = c && parseOwnerMessage(raw, state.today, state);
+      if (c && p && (p.intent === 'credit' || p.intent === 'payment') && p.amount! > 0) {
+        const relWord = tok.display[tok.norm.indexOf(rel[3], head.length)] || rel[3];
+        const name = c.name + ' ' + rel[2] + ' ' + relWord.toLowerCase(), key = c.key + ' ' + rel[2] + ' ' + rel[3];
+        const action: OwnerIntent = Object.assign({}, p, { name, nameKey: key, matches: undefined, raw, source: opts.source || 'text', lineParse: null });
+        state.pending = { type: 'confirm', what: 'loose-cust', options: [], custId: c.id, action };
+        const word = p.intent === 'credit' ? 'udhaar' : 'jama';
+        return { intent: { intent: 'relative-ask', name } as HandledIntent, messages: say('🤔 "' + name + '" ka ' + rupees(p.amount!) + ' ' + word + ': ' + c.name + ' ke khate mein likhun, ya "' + name + '" ka naya khata?\n*haan* = ' + c.name + ' ke khate mein' +
+          (p.intent === 'credit' ? '\n*naya* = "' + name + '" ka naya khata' : '') + '\n*nahi* = kuch nahi\n(Abhi kuch nahi likha.)', 'confirm-ask') };
+      }
+    }
     // two bare numbers side by side ("200 300", "200-300", "5 0 0") for one entry: ask, never pick one
     const pair = /(?:^|[\s₹(])(\d+(?:\.\d+)?)((?:\s*(?:-|–|\/|\s|\bya\b|\bor\b|\bto\b)\s*\d+(?:\.\d+)?)+)(?=$|[\s.,!?)])/i.exec(raw);
     if (pair && !numWord && !/\b[6-9]\d{9}\b/.test(raw) && !listIntent(state, text) && !multiIntent(state, text) && !UNITS.test(normWord((raw.slice(pair.index + pair[0].length).trim().split(/\s+/)[0] || '').toLowerCase()))) {

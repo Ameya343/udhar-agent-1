@@ -31,7 +31,8 @@
 //   SESSION_DAYS, OWNER_MAX_FAILS, OWNER_LOCK_MIN   owner login: session length (7 days), wrong tries before a lock (5),
 //                          lock length in minutes (15). The first owner account needs ADMIN_KEY.
 //                          "reset", "next day" and "close day" are refused on a live shop for everyone (KAN-101, KAN-102)
-//   AI_TEST_MAX_CASES, AI_TEST_MAX_PER_HOUR  /test-run's AI-generated cases: cases per run (20) and runs per hour (6); see server/ai-test.ts
+//   AI_TEST_MAX_CASES, AI_TEST_MAX_FIXED, AI_TEST_MAX_PER_HOUR  /test-run on the AI: AI-written cases per run (20), hand-checked
+//                          cases per run (40) and runs per hour (6); see server/ai-test.ts
 //   UDHAAR_ENV_FILE        optional KEY=value file read once at startup (default /home/node/udhaar.env).
 //                          Agent37 cannot pass env vars to an instance, so keys go in this file instead.
 //                          A variable already set in the real environment wins over the file.
@@ -148,6 +149,13 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
   // /test-run's AI-generated cases: the same model chain writes messages, the real pipeline reads them on a throwaway shop
   const aiTest = createAiTest({ env, fetch: fetchImpl, today, now: opts.now });
 
+  // What /healthz says is still to do for owner login and tax-id encryption: setup steps only, never a key (KAN-128)
+  const ownerTodo = (): string[] => {
+    const t: string[] = [];
+    if (!auth.hasOwner()) t.push(env.ADMIN_KEY ? 'Owner login not set up: open the shop page, fill "Create owner login" with the ADMIN_KEY, the owner\'s mobile number and a password.' : 'Owner login not set up: put ADMIN_KEY=<a long secret> in ' + (env.UDHAAR_ENV_FILE || '/home/node/udhaar.env') + ', restart, then open the shop page and fill "Create owner login".');
+    if (!auth.encryptionOn()) t.push('GSTIN / PAN are stored unencrypted: put TAX_ID_KEY=<a long random secret, kept safe> in ' + (env.UDHAAR_ENV_FILE || '/home/node/udhaar.env') + ' and restart. Losing it means saved tax ids cannot be read.');
+    return t;
+  };
   // What the page gets. The pay-link secret never leaves the server; on a live shop a public visitor also sees
   // customers' and wholesalers' numbers masked and no UPI ids (KAN-43).
   function publicState(full: boolean): State {
@@ -268,16 +276,25 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
       if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) return send(res, 200, pageHtml(), 'text/html; charset=utf-8');
       // the live test run: runs the cases in the visitor's browser on a throwaway demo shop; this shop's khata is never sent
       if (req.method === 'GET' && (url.pathname === '/test-run' || url.pathname === '/test-run.html')) return send(res, 200, fs.readFileSync(path.join(ROOT, 'dist/test-run.html'), 'utf8'), 'text/html; charset=utf-8');
-      if (req.method === 'GET' && url.pathname === '/api/ai-test') return send(res, 200, { enabled: aiTest.enabled, chain: aiTest.describe(), maxCases: aiTest.maxCases });
-      // never touches this shop's khata: every case runs on its own fresh demo shop (server/ai-test.ts)
+      if (req.method === 'GET' && url.pathname === '/api/ai-test') return send(res, 200, { enabled: aiTest.enabled, chain: aiTest.describe(), maxCases: aiTest.maxCases, maxFixed: aiTest.maxFixed });
+      // never touches this shop's khata and never sends a WhatsApp message: every case runs on its own fresh in-memory
+      // demo shop (server/ai-test.ts). mode "fixed" = the hand-checked cases on the AI, else cases the AI writes.
+      // stream: one JSON line per event ({type:"start"}, {type:"case"}, then {type:"done"}), so the page fills in live.
       if (req.method === 'POST' && url.pathname === '/api/ai-test') {
         const j = await jsonBody(req);
-        if (!j.body) return send(res, j.code!, { error: j.error });
-        return send(res, 200, await aiTest.run(j.body.count));
+        const b = j.body;
+        if (!b) return send(res, j.code!, { error: j.error });
+        const go = (ro?: Parameters<typeof aiTest.run>[1]) => (b.mode === 'fixed' ? aiTest.runFixed(b.count, ro) : aiTest.run(b.count, ro));
+        if (!b.stream) return send(res, 200, await go());
+        res.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-accel-buffering': 'no' });
+        const line = (o: unknown) => { if (!res.writableEnded) res.write(JSON.stringify(o) + '\n'); };
+        const done = await go({ onStart: (info) => line(Object.assign({ type: 'start' }, info)), onCase: (r, i, n) => line({ type: 'case', i, n, result: r }) });
+        line(Object.assign({}, done, { type: 'done', results: undefined }));
+        return res.end();
       }
       if (req.method === 'GET' && url.pathname === '/favicon.ico') { res.writeHead(204); return res.end(); }
       if (req.method === 'GET' && url.pathname === '/healthz') return send(res, 200, { ok: true, shop: shopId, llm: engine.llm, scheduler: env.REAL_CLOCK === '1', llmCalls: engine.llmCalls, llmFallbacks: engine.llmFallbacks, ai: llm.health(),
-        owner: { store: authStore.kind, account: auth.hasOwner(), taxIdEncrypted: auth.encryptionOn() },
+        owner: { store: authStore.kind, account: auth.hasOwner(), taxIdEncrypted: auth.encryptionOn(), todo: ownerTodo() },
         storage: { kind: store.kind, dualWriteJson: !!store.dualWrite, fallback: store.fallback || null, lastError: store.lastError || null },
         whatsapp: { provider: wa.provider, enabled: wa.stats.enabled, sending: wa.stats.sending, voice: wa.stats.stt, voiceProvider: wa.stats.sttProvider || null, voiceNotes: wa.stats.voiceNotes, received: wa.stats.received, sent: wa.stats.sent, failed: wa.stats.failed, lastError: wa.stats.lastError,
           web: web ? web.status() : null } });

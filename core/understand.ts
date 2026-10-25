@@ -326,6 +326,8 @@ function reconcileOwner(state: State, oi: OwnerIntent, rules: OwnerIntent, text:
     const words = C.tokenize(text).norm;
     const has = (k: string) => k.split(' ').filter(Boolean).every((w) => words.some((x) => x === w || (w.length >= 3 && x.length >= 3 && (x.startsWith(w) || w.startsWith(x)))));
     if (!has(oi.nameKey)) {
+      // the model named someone the message never says, so it read something else: a clear entry by the rules wins whole
+      if (rulesMoney && MONEY.indexOf(oi.intent) >= 0) return rules;
       if (rules.nameKey) { oi.name = rules.name; oi.nameKey = rules.nameKey; oi.matches = rules.matches; }
       else { oi.name = null; oi.nameKey = null; }
     }
@@ -336,6 +338,8 @@ function reconcileOwner(state: State, oi: OwnerIntent, rules: OwnerIntent, text:
   if (oi.dueDate && oi.dueDate !== rules.dueDate && !said(DATE_CUE)) oi.dueDate = null;
   // and a real day from today to a year ahead: never a past day (overdue at once) or 2099 (never reminded) (KAN-109)
   if (oi.dueDate && (oi.dueDate < state.today || oi.dueDate > C.addDays(state.today, 366))) oi.dueDate = rules.dueDate && rules.dueDate >= state.today ? rules.dueDate : null;
+  // "Pappu ko 200 wapas diye": the shop paid back, a refund on the khata, whatever the model called it (KAN-126)
+  if (oi.intent === 'payment' && rules.intent === 'credit' && rulesMoney && / ko /.test(norm) && !/ (ne|se) /.test(norm) && / (vapas|lauta|lautaya|lautaye|lautae|returned|return|refund|refand) /.test(norm)) return rules;
   if (MONEY.indexOf(oi.intent) >= 0) {
     const cw = CREDIT_WORDS.test(norm), pw = PAY_WORDS.test(norm) && !/ ko /.test(norm);
     const words = cw !== pw ? (cw ? 'credit' : 'payment') : null;

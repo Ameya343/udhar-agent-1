@@ -10,12 +10,21 @@
 // The generator also labels each message (kind, name, amount). Those labels come from a model, not a person, so a
 // disagreement with them is shown as "label" and counted separately from a broken rule.
 //
+// The second kind of run ("fixed") takes a mix of the hand-checked cases from livetest/cases.js, the same ones the page runs
+// on the rules alone, and runs each one with the model reading every owner message first (livetest/runner.js runCaseAi).
+// Those cases have an expected answer written by a person, so a pass or a fail there is real, and each one also says
+// whether the rules alone gave the same result.
+//
+// Both runs can stream: onCase gets each result as it finishes, so the page shows pass / fail live.
+//
 //   AI_TEST_MAX_CASES      default 20: the most cases one run may ask for (each case is one model call, plus one to write them)
+//   AI_TEST_MAX_FIXED      default 40: the most hand-checked cases one "fixed" run may take
 //   AI_TEST_MAX_PER_HOUR   default 6: runs per hour for the whole instance (they spend the shop's model credits)
 import C = require('../core/agent-core');
 import { createBrain } from './brain';
 import type { LlmOpts, ChatResult } from './llm';
 import type { State } from '../core/types';
+import path = require('path');
 
 type Env = Record<string, string | undefined>;
 export interface AiTestOpts { env?: Env; fetch?: LlmOpts['fetch']; today: () => string; now?: () => number }
@@ -29,6 +38,35 @@ export interface AiRun {
   ok: boolean; error?: string; reason?: string;
   generator?: { provider: string; via: string; model: string; ms: number; asked: number; got: number };
   results?: AiCaseResult[]; pass?: number; fail?: number; labelDisagree?: number; aiRead?: number; ms?: number; calls?: number;
+}
+/** A hand-checked case run on the model (livetest/runner.js), plus what the rules alone made of it. */
+export interface FixedCaseResult {
+  id: number; cat: string; input: string; expected: string; actual: string; pass: boolean; why: string[]; reply: string; note?: string;
+  readBy: string[]; ms: number; rulesPass: boolean; rulesActual: string;
+}
+export interface FixedRun {
+  ok: boolean; error?: string; reason?: string; mode?: 'fixed'; chain?: string;
+  results?: FixedCaseResult[]; pass?: number; fail?: number; aiRead?: number; differ?: number; ms?: number; calls?: number; total?: number;
+}
+export interface RunOpts { onCase?: (r: AiCaseResult | FixedCaseResult, i: number, n: number) => void; onStart?: (info: Record<string, unknown>) => void }
+// the hand-checked cases and their runner: plain JS shared with the page (the Dockerfile copies livetest/)
+type LiveCase = { id: number; cat: string; steps: { who: string; text: string }[] };
+function liveTest(): { TODAY: string; CAT: Record<string, { label: string }>; cases: LiveCase[]; runCase: Function; runCaseAi: Function } | null {
+  try {
+    const dir = path.join(__dirname, '..', '..', 'livetest');
+    return Object.assign({}, require(path.join(dir, 'cases.js')), require(path.join(dir, 'runner.js')));
+  } catch { return null; }
+}
+/** n cases spread over every group (round robin, a different mix each run), only ones the owner types: each owner step is a model call. */
+function pickCases(cases: LiveCase[], n: number, seed: number): LiveCase[] {
+  let x = seed || 1;
+  const rnd = () => (x = (x * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const groups: Record<string, LiveCase[]> = {};
+  for (const k of cases) if (k.steps.some((s) => s.who === 'owner')) (groups[k.cat] = groups[k.cat] || []).push(k);
+  for (const g of Object.values(groups)) for (let i = g.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [g[i], g[j]] = [g[j], g[i]]; }
+  const keys = Object.keys(groups), out: LiveCase[] = [];
+  for (let r = 0; out.length < n && keys.some((k) => groups[k].length > r); r++) for (const k of keys) if (groups[k][r] && out.length < n) out.push(groups[k][r]);
+  return out;
 }
 
 const KINDS: Kind[] = ['credit', 'payment', 'query', 'unclear', 'fix', 'other'];
@@ -84,6 +122,7 @@ function createAiTest(opts: AiTestOpts) {
   const now = opts.now || Date.now;
   const maxCases = Math.max(1, Math.min(50, +env.AI_TEST_MAX_CASES! || 20));
   const perHour = +env.AI_TEST_MAX_PER_HOUR! || 6;
+  const maxFixed = Math.max(1, Math.min(100, +env.AI_TEST_MAX_FIXED! || 40));
   let shop: State = null!;
   // its own brain (and so its own provider stats and circuit breaker), reading the throwaway shop
   const brain = createBrain({ env, fetch: opts.fetch, getState: () => shop });
@@ -131,12 +170,18 @@ function createAiTest(opts: AiTestOpts) {
     return r;
   }
 
-  async function run(count: unknown): Promise<AiRun> {
-    if (!brain.llm.enabled) return { ok: false, error: 'no-model', reason: 'No model on this instance: AGENT37_LLM_PROXY_URL (set by Agent37) and LLM_BASE_URL are both unset, so the AI cannot write cases here. The fixed cases still run.' };
+  /** Why a run may not start now (no model, one already going, the hourly limit), or null. */
+  function refuse(t: number): { ok: false; error: string; reason: string } | null {
+    if (!brain.llm.enabled) return { ok: false, error: 'no-model', reason: 'No model on this instance: AGENT37_LLM_PROXY_URL (set by Agent37) and LLM_BASE_URL are both unset, so the AI cannot run cases here. The rules-only cases still run.' };
     if (busy) return { ok: false, error: 'busy', reason: 'An AI test run is already going. Try again in a minute.' };
-    const t = now();
     while (runs.length && t - runs[0] > 3600e3) runs.shift();
     if (runs.length >= perHour) return { ok: false, error: 'limit', reason: 'This instance already ran ' + perHour + ' AI test runs in the last hour (they spend the shop\'s model credits). Try again later.' };
+    return null;
+  }
+
+  async function run(count: unknown, ro?: RunOpts): Promise<AiRun> {
+    const t = now(), no = refuse(t);
+    if (no) return no;
     const n = Math.max(1, Math.min(maxCases, Math.floor(+(count as number)) || 10));
     busy = true; runs.push(t);
     const calls0 = brain.llm.stats.calls;
@@ -146,8 +191,9 @@ function createAiTest(opts: AiTestOpts) {
       try {
         gen = await brain.llm.chatJson(generatorMessages(shop, n, Math.floor(Math.random() * 1e6)), { maxTokens: 120 + 90 * n, timeoutMs: 30000, temperature: 0.9, validate: (j) => cleanCases(j, n) });
       } catch (e: any) { return { ok: false, error: 'generator', reason: 'The model did not write usable cases: ' + String(e && e.message).slice(0, 160) }; }
+      if (ro && ro.onStart) ro.onStart({ mode: 'generated', total: gen.value.length, generator: { provider: gen.provider, via: via(gen.provider), model: gen.model, ms: gen.ms, asked: n, got: gen.value.length } });
       const results: AiCaseResult[] = [];
-      for (let i = 0; i < gen.value.length; i++) results.push(await runOne(i + 1, gen.value[i]));
+      for (let i = 0; i < gen.value.length; i++) { const r = await runOne(i + 1, gen.value[i]); results.push(r); if (ro && ro.onCase) ro.onCase(r, i, gen.value.length); }
       const pass = results.filter((r) => r.pass).length;
       return {
         ok: true, generator: { provider: gen.provider, via: via(gen.provider), model: gen.model, ms: gen.ms, asked: n, got: gen.value.length },
@@ -157,7 +203,39 @@ function createAiTest(opts: AiTestOpts) {
     } finally { busy = false; }
   }
 
-  return { run, enabled: brain.llm.enabled, describe: brain.llm.describe, maxCases };
+  /** n hand-checked cases (livetest/), each owner message read by the model first, on its own fresh demo shop. */
+  async function runFixed(count: unknown, ro?: RunOpts): Promise<FixedRun> {
+    const lt = liveTest();
+    if (!lt) return { ok: false, error: 'no-cases', reason: 'The hand-checked cases (livetest/) are not on this instance.' };
+    const t = now(), no = refuse(t);
+    if (no) return no;
+    const n = Math.max(1, Math.min(maxFixed, Math.floor(+(count as number)) || 20));
+    busy = true; runs.push(t);
+    const calls0 = brain.llm.stats.calls;
+    try {
+      const picked = pickCases(lt.cases, n, Math.floor(Math.random() * 1e6) + 1);
+      if (ro && ro.onStart) ro.onStart({ mode: 'fixed', total: picked.length, chain: brain.llm.describe(), of: lt.cases.length });
+      const read = (st: State, text: string) => { shop = st; return brain.understandOwner(text); };
+      const results: FixedCaseResult[] = [];
+      for (let i = 0; i < picked.length; i++) {
+        const k = picked[i];
+        const ai = await lt.runCaseAi(C, k, lt.TODAY, read);
+        const rules = lt.runCase(C, k, lt.TODAY);
+        const r: FixedCaseResult = Object.assign(ai, { readBy: ai.readBy, rulesPass: rules.pass, rulesActual: rules.actual });
+        results.push(r);
+        if (ro && ro.onCase) ro.onCase(r, i, picked.length);
+      }
+      const pass = results.filter((r) => r.pass).length;
+      return {
+        ok: true, mode: 'fixed', chain: brain.llm.describe(), results, pass, fail: results.length - pass, total: lt.cases.length,
+        aiRead: results.filter((r) => r.readBy.length && r.readBy.every((b) => b === 'ai')).length,
+        differ: results.filter((r) => r.pass !== r.rulesPass || r.actual !== r.rulesActual).length,
+        ms: now() - t, calls: brain.llm.stats.calls - calls0
+      };
+    } finally { busy = false; }
+  }
+
+  return { run, runFixed, enabled: brain.llm.enabled, describe: brain.llm.describe, maxCases, maxFixed };
 }
 
-export { createAiTest, numbersIn, nameIn, cleanCases };
+export { createAiTest, numbersIn, nameIn, cleanCases, pickCases };
