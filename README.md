@@ -416,7 +416,8 @@ flowchart LR
 
 **How to run the test-run:**
 
-- Open `https://d3faa8ae5d0df30956f2.agent37.app/test-run.html` (or `http://localhost:8000/test-run.html` locally) and start a section. The hand-checked section runs in the browser; the two AI sections call `/api/ai-test` on the server.
+- The test run is its own page with its own link, separate from the shop dashboard (the dashboard has no link to it).
+- Open `https://d3faa8ae5d0df30956f2.agent37.app/test-run` (or `http://localhost:8000/test-run` locally; `/test-run.html` also works) and start a section. The hand-checked section runs in the browser; the two AI sections call `/api/ai-test` on the server.
 - `GET /api/ai-test` shows whether the AI test is on and which model chain it uses.
 - From the command line: `node livetest/run.js --fails` runs the 900 cases and prints only failures.
 
