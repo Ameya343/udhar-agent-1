@@ -205,3 +205,11 @@ DATABASE_URL=... node dist-server/scripts/seed-shops.js zafar saikrupa --apply  
 - The Gupta shop on the live server stays where it is (`STORE=pg-tables`). To move it into its own schema too, use
   `scripts/pg-tables-to-schema.ts gupta --apply`.
 - To serve one of these shops, run a server with `SHOP=zafar STORE=pg-schema` (one server per shop).
+
+## Self-registered shops (migration 003)
+
+The entry page lets a new owner register a shop. Each one gets a new shop id (`s` + 10 hex characters) and is stored
+exactly like the instance's own shop, under its own id: its own `shop_state` row / RLS-scoped rows / schema, and its own
+rows in `shop_owners`, `owner_sessions` and `shop_profiles`. `shop_accounts` (db/migrations/003_shop_accounts.sql)
+maps the owner's phone to the shop id (unique per phone). The migration only adds a table and an index, both
+`IF NOT EXISTS`; nothing existing is altered, so the instance's own shop (e.g. `gupta`) needs no data migration.

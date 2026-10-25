@@ -33,6 +33,10 @@
 //                          "reset", "next day" and "close day" are refused on a live shop for everyone (KAN-101, KAN-102)
 //   AI_TEST_MAX_CASES, AI_TEST_MAX_FIXED, AI_TEST_MAX_PER_HOUR  /test-run on the AI: AI-written cases per run (20), hand-checked
 //                          cases per run (40) and runs per hour (6); see server/ai-test.ts
+//   REGISTER_LIMIT_PER_HOUR default 5: new-shop registrations per hour per visitor IP (POST /api/auth/register)
+//   WA_MAX_SHOPS           default 10: registered shops that may have their own WhatsApp number linked at the same time
+//                          (one linked-device session each, keys in <WA_WEB_AUTH_DIR>-shops/<shopId>); the instance's own
+//                          shop keeps its session in WA_WEB_AUTH_DIR as before and is not counted
 //   UDHAAR_ENV_FILE        optional KEY=value file read once at startup (default /home/node/udhaar.env).
 //                          Agent37 cannot pass env vars to an instance, so keys go in this file instead.
 //                          A variable already set in the real environment wins over the file.
@@ -47,13 +51,15 @@ import { createWebTransport } from './wa-web';
 import { createBrain } from './brain';
 import { createAiTest } from './ai-test';
 import { createFileStore, openStore } from './store';
-import { createAuth, createFileAuthStore, openAuthStore } from './auth';
+import { createAuth, createFileAuthStore, openAuthStore, normPhone } from './auth';
 import type { AuthStore, Auth } from './auth';
 import type { State } from '../core/types';
 import type { Store } from './store';
 import type { Whatsapp } from './whatsapp';
 import type { WebTransport, WebTransportOpts } from './wa-web';
 import type { Brain, BrainOpts } from './brain';
+import { createFileRegistry, openRegistry, newShopId, validShopId } from './shops';
+import type { Registry } from './shops';
 
 type Env = Record<string, string | undefined>;
 export interface ServerOpts {
@@ -67,6 +73,10 @@ export interface ServerOpts {
   authStore?: AuthStore;
   webTransport?: (o: WebTransportOpts) => WebTransport;
   waWebLib?: unknown;
+  /** the self-registered shops (default: data/shops.registry.json) */
+  registry?: Registry;
+  /** opens a self-registered shop's khata and owner-login stores (default: JSON files in DATA_DIR) */
+  openShop?: (shopId: string) => Promise<{ store: Store; authStore: AuthStore }>;
 }
 type Snapshot = Record<string, unknown>;
 /** The http server plus the handles tests and the scheduler use. */
@@ -79,10 +89,19 @@ export type UdhaarServer = http.Server & {
   web: WebTransport | null;
   store: Store;
   auth: Auth;
+  registry: Registry;
+  /** a self-registered shop's runtime (opened on first use) */
+  shop: (id: string) => Promise<Tenant | null>;
   idle: () => Promise<unknown>;
 };
 /** An error carrying the HTTP status to answer with. */
 type HttpError = Error & { code?: number };
+/** A self-registered shop: its own khata, owner login, brain, action queue and (once linked) its own WhatsApp number. */
+export interface Tenant {
+  id: string; store: Store; authStore: AuthStore; auth: Auth; brain: Brain;
+  state: State; save(): void; serial<R>(fn: () => R | Promise<R>): Promise<R>;
+  web: WebTransport | null; wa: Whatsapp | null; authDir: string;
+}
 
 // compiled to dist-server/server/, two levels below the repo root
 const ROOT = path.join(__dirname, '..', '..');
@@ -223,7 +242,8 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
 
   // A small per-visitor rate limit for the routes that change the khata or spend AI calls. The page itself stays open
   // (it is a public demo); this only stops one visitor from hammering the shop. Local calls (no proxy) are not limited.
-  const limits: Record<string, number[]> = { '/api/act': [+env.ACT_LIMIT_PER_MIN! || 30, 60e3], '/api/ai-test': [3, 60e3], '/api/auth/login': [10, 60e3], '/api/auth/setup': [5, 60e3] };
+  const limits: Record<string, number[]> = { '/api/act': [+env.ACT_LIMIT_PER_MIN! || 30, 60e3], '/api/ai-test': [3, 60e3], '/api/auth/login': [10, 60e3], '/api/auth/setup': [5, 60e3],
+    '/api/auth/register': [+env.REGISTER_LIMIT_PER_HOUR! || 5, 3600e3], '/api/wa/connect': [10, 60e3] };
   const hits = new Map<string, number[]>();
   const local = (req: http.IncomingMessage) => !req.headers['x-forwarded-for'] && /^(::1|127\.|::ffff:127\.)/.test(req.socket.remoteAddress || '');
   const sameKey = (a: unknown, b: unknown) => { const x = Buffer.from(String(a || '')), y = Buffer.from(String(b)); return x.length === y.length && (require('crypto') as typeof import('crypto')).timingSafeEqual(x, y); };
@@ -266,6 +286,193 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
       for (const [k, ts] of hits) if (!ts.some((t) => now - t < windowMs)) hits.delete(k);
     }
     return false;
+  }
+
+  const evening = +env.EVENING_HOUR! || 21;
+  const hourNow = opts.hour || (() => new Date().getHours());
+  // ---------- self-registered shops (one owner account = one shop; the instance's own shop above is untouched) ----------
+  // Each has its own khata, owner login, brain and action queue, and can link its own WhatsApp number: one linked-device
+  // session per shop, keys in <WA_WEB_AUTH_DIR>-shops/<shopId>, capped at WA_MAX_SHOPS (default 10) at a time.
+  const registry: Registry = opts.registry || createFileRegistry(dataDir);
+  const openShopStores = opts.openShop || (async (id: string) => ({ store: createFileStore(dataDir, id) as Store, authStore: createFileAuthStore(dataDir, id) }));
+  const tenants = new Map<string, Promise<Tenant | null>>();
+  const waRoot = (env.WA_WEB_AUTH_DIR || path.join(dataDir, 'wa-web-auth')) + '-shops';
+  const waMax = env.WA_MAX_SHOPS != null && env.WA_MAX_SHOPS !== '' ? Math.max(0, +env.WA_MAX_SHOPS || 0) : 10;
+  const waActive = () => { let n = 0; for (const t of loaded.values()) if (t.web) n++; return n; };
+  const loaded = new Map<string, Tenant>();
+
+  function emptyShop(id: string, name: string, owner: string): State {
+    const s = C.freshShop('nayi', today());
+    const was = s.shop.name;
+    Object.assign(s.shop, { id, name, owner, upiId: '' });
+    s.wsSeeded = true; // no demo wholesalers
+    for (const m of s.messages) m.text = m.text.split(was).join(name).replace(/^Namaste Malik ji/, 'Namaste ' + (owner.split(' ')[0] || 'Malik') + ' ji');
+    return s;
+  }
+  async function openTenant(id: string, fresh?: { name: string; owner: string }): Promise<Tenant | null> {
+    if (!validShopId(id) || (!registry.has(id) && !fresh)) return null;
+    const { store: st, authStore: as } = await openShopStores(id);
+    let tstate = st.load()!;
+    if (!tstate || !tstate.shop) { if (!fresh) { const a = registry.list().find((x) => x.id === id); fresh = { name: a ? a.name : 'Meri dukaan', owner: '' }; } tstate = emptyShop(id, fresh.name, fresh.owner); st.save(tstate); }
+    let q: Promise<unknown> = Promise.resolve();
+    const t: Tenant = {
+      id, store: st, authStore: as, auth: createAuth({ env, store: as, now: opts!.now, tokenPrefix: id }),
+      brain: null!, state: tstate, web: null, wa: null, authDir: path.join(waRoot, id),
+      save() { t.store.save(t.state); },
+      serial<R>(fn: () => R | Promise<R>): Promise<R> { const p = q.then(fn, fn); q = p.catch(() => {}); return p as Promise<R>; }
+    };
+    t.brain = createBrain({ env, fetch: fetchImpl, getState: () => t.state });
+    loaded.set(id, t);
+    // a shop whose number was linked before the restart reconnects on its own
+    if (fs.existsSync(path.join(t.authDir, 'creds.json'))) waConnect(t);
+    return t;
+  }
+  function tenant(id: string, fresh?: { name: string; owner: string }): Promise<Tenant | null> {
+    if (!tenants.has(id)) { const p = openTenant(id, fresh).catch((e) => { tenants.delete(id); throw e; }); tenants.set(id, p); }
+    return tenants.get(id)!;
+  }
+  /** The shop a request's session cookie belongs to (only a self-registered one), and its owner. */
+  async function tenantOf(req: http.IncomingMessage): Promise<{ t: Tenant; owner: NonNullable<ReturnType<Auth['sessionOwner']>> } | null> {
+    let tok = '';
+    for (const part of String(req.headers.cookie || '').split(';')) { const [k, ...v] = part.trim().split('='); if (k === auth.COOKIE) tok = v.join('='); }
+    const dot = tok.indexOf('.');
+    if (dot < 0) return null;
+    const id = tok.slice(0, dot);
+    if (!registry.has(id)) return null;
+    const t = await tenant(id);
+    const owner = t && t.auth.sessionOwner(req.headers.cookie);
+    return t && owner ? { t, owner } : null;
+  }
+
+  // a self-registered shop's WhatsApp: its own socket, its own owner number, its own khata. Nothing is shared with the
+  // instance's shop or with any other shop: pay links and the join page stay with the instance's shop (no PUBLIC_URL here).
+  function waConnect(t: Tenant): { ok: boolean; error?: string } {
+    if (t.web) { t.web.start(); return { ok: true }; }
+    if (waActive() >= waMax) return { ok: false, error: 'WhatsApp is linked for the most shops this server allows (' + waMax + '). Ask the admin to raise WA_MAX_SHOPS.' };
+    const phone = t.auth.ownerPhone();
+    const wenv: Env = Object.assign({}, env, { OWNER_WHATSAPP: phone ? '91' + phone : '', PUBLIC_URL: '', PAY_SECRET: '', WA_WEB_DISPLAY_NUMBER: '', WA_PROVIDER: 'web' });
+    t.web = (opts!.webTransport || createWebTransport)({
+      authDir: t.authDir, keepAlive: true, maxPerHour: +env.WA_WEB_MAX_PER_HOUR! || 30,
+      loadLib: opts!.waWebLib ? () => Promise.resolve(opts!.waWebLib) : () => import('@whiskeysockets/baileys'),
+      sleep: opts!.sleep, now: opts!.now,
+      onMessage: (m) => {
+        const w = t.wa;
+        if (!w || !w.webReady) return;
+        t.serial(() => w.handleWeb(m, (a, args) => tenantAct(t, a, args), () => t.state, () => t.save())).then(() => t.save(), (e) => { w.stats.lastError = String(e.message || e).slice(0, 200); });
+      }
+    });
+    t.wa = createWhatsapp({ env: wenv, fetch: fetchImpl, getState: () => t.state, now: opts!.now, web: t.web });
+    t.web.start();
+    return { ok: true };
+  }
+  async function waDisconnect(t: Tenant) {
+    const w = t.web;
+    t.web = null; t.wa = null;
+    if (w) { if (w.logout) await w.logout(); else w.stop(); }
+    try { fs.rmSync(t.authDir, { recursive: true, force: true }); } catch (e) { /* already gone */ }
+  }
+  function waInfo(t: Tenant) {
+    if (!t.web) return { connected: false, state: 'off', number: null, qrSvg: null, note: 'WhatsApp not connected yet. Use "Connect WhatsApp" to link your shop\'s own number.', slotsLeft: Math.max(0, waMax - waActive()) };
+    const st = t.web.status(), qrText = t.web.qr();
+    let qrSvg: string | null = null;
+    if (st.state === 'qr' && qrText) { const qr = (require('../../vendor/qrcode-generator.js') as any)(0, 'L'); qr.addData(qrText); qr.make(); qrSvg = qr.createSvgTag({ cellSize: 6, margin: 3, scalable: true }); }
+    return { connected: !!st.linked, state: st.state, number: st.number, qrSvg, lastError: st.lastError, note: st.linked ? null : 'WhatsApp not connected yet. Scan the QR with your shop phone: WhatsApp → Linked devices → Link a device.', slotsLeft: Math.max(0, waMax - waActive()) };
+  }
+
+  async function tenantAct(t: Tenant, action: string, args?: Record<string, unknown>): Promise<Snapshot> {
+    if (action === 'reset') { t.state = emptyShop(t.id, t.state.shop.name, t.state.shop.owner || ''); t.save(); return tenantSnap(t, { freshTxn: null }); }
+    if (C.ACTIONS.indexOf(action) < 0) throw Object.assign(new Error('unknown action'), { code: 400 });
+    const a: Record<string, any> = Object.assign({}, args);
+    delete a.intent; delete a.now;
+    const heard = typeof a.heard === 'string' && a.heard ? a.heard.slice(0, 500) : null;
+    delete a.heard;
+    if (action === 'owner' && !C.looksLikeUpiSms(String(a.text || ''))) a.intent = await t.brain.understandOwner(String(a.text || '').slice(0, 500), { heard });
+    if (action === 'customer' && a.text) { const ci = await t.brain.understandCustomer(String(a.text).slice(0, 500), String(a.custId || ''), { heard, source: a.source === 'voice' ? 'voice' : 'text' }); if (ci) a.intent = ci; }
+    const from = t.state.messages.length;
+    let out;
+    try { out = C.runAction(t.state, action, a); } catch (e) { throw Object.assign(e as Error, { code: 400 }); }
+    await t.brain.translateOut(t.state, from);
+    t.save();
+    return tenantSnap(t, { freshTxn: out.freshTxn, result: out.result });
+  }
+  function tenantSnap(t: Tenant, extra?: Snapshot): Snapshot {
+    const { paySecret, ...rest } = t.state as State & { paySecret?: string };
+    void paySecret;
+    return Object.assign({ state: rest, dashboard: C.dashboard(t.state, 30), shopId: t.id, locked: false, live, own: true,
+      engine: { llm: engine.llm, model: engine.model, lastError: null, whatsapp: !!(t.wa && t.wa.stats.enabled) }, whatsapp: waInfo(t), others: [] }, extra || {});
+  }
+  // a new shop's day follows the real calendar the same way (no WhatsApp unless it linked its own number)
+  function tickTenants() {
+    return Promise.all(Array.from(loaded.values()).map((t) => t.serial(async () => {
+      const now = today(), from = t.state.messages.length; let ran = false;
+      for (let i = 0; i < 31 && t.state.today < now; i++) { C.runAction(t.state, 'nextDay'); ran = true; }
+      if (hourNow() >= evening && t.state.eveningSentFor !== t.state.today && t.state.today === now) { C.runAction(t.state, 'closeDay'); ran = true; }
+      if (ran) { await t.brain.translateOut(t.state, from); if (t.wa) t.wa.deliver(t.state, from); t.save(); }
+    })));
+  }
+
+  /** The routes a self-registered shop's owner uses; null = not one of them. Every one works on that shop only. */
+  async function tenantRoute(req: http.IncomingMessage, res: http.ServerResponse, url: URL, t: Tenant, owner: NonNullable<ReturnType<Auth['sessionOwner']>>): Promise<unknown> {
+    const p = url.pathname;
+    if (req.method === 'GET' && p === '/api/state') return send(res, 200, tenantSnap(t));
+    if (req.method === 'GET' && p === '/api/auth/status')
+      return send(res, 200, { hasOwner: true, owner: true, via: 'session', live, adminKeySet: false, name: owner.name, shopId: t.id, profile: t.auth.profile(), taxIdEncryption: t.auth.encryptionOn() });
+    if (req.method === 'GET' && p === '/api/profile') return send(res, 200, { profile: t.auth.profile() });
+    if (req.method === 'GET' && p === '/api/wa/status') return send(res, 200, waInfo(t));
+    if (req.method !== 'POST' || !(p === '/api/act' || p === '/api/profile' || p.startsWith('/api/auth/') || p.startsWith('/api/wa/'))) return null;
+    if (p === '/api/auth/login' || p === '/api/auth/register') return null; // logging in as someone else from the entry page
+    const j = await jsonBody(req);
+    if (!j.body) { if (j.code === 413) res.setHeader('connection', 'close'); return send(res, j.code!, { error: j.error }); }
+    const b = j.body;
+    if (p === '/api/auth/logout') { t.auth.logout(req.headers.cookie); res.setHeader('set-cookie', auth.clearCookie()); return send(res, 200, { ok: true }); }
+    if (p === '/api/auth/password') return authRoute(req, res, t.auth.changePassword(owner, b));
+    if (p === '/api/auth/setup') return send(res, 409, { error: 'This shop already has an owner.' });
+    if (p === '/api/wa/connect') { const r = waConnect(t); return r.ok ? send(res, 200, Object.assign({ ok: true }, waInfo(t))) : send(res, 409, { error: r.error }); }
+    if (p === '/api/wa/disconnect') { await waDisconnect(t); return send(res, 200, Object.assign({ ok: true }, waInfo(t))); }
+    if (p === '/api/profile') {
+      const upi = 'upiId' in b ? (String(b.upiId || '').trim() ? C.validUpi(b.upiId) : '') : null;
+      if (upi === null && 'upiId' in b) return send(res, 400, { error: 'UPI ID should look like name@bank, for example yourname@okaxis (demo IDs are not allowed)' });
+      const out = t.auth.saveProfile(b);
+      if (out.ok && out.profile) await t.serial(() => { t.state.shop.name = out.profile!.shopName; t.state.shop.owner = out.profile!.ownerName; if (upi != null) t.state.shop.upiId = upi; t.save(); });
+      return authRoute(req, res, Object.assign(out, { upiId: C.shopUpi(t.state) }));
+    }
+    if (p === '/api/act') {
+      const action = String(typeof b.action === 'string' ? b.action : '');
+      const args = b.args && typeof b.args === 'object' && !Array.isArray(b.args) ? b.args : {};
+      if ('text' in args && typeof args.text !== 'string') return send(res, 400, { error: 'text must be a string' });
+      if (live && LIVE_BLOCKED[action]) return send(res, 403, { error: 'live', message: LIVE_BLOCKED[action] });
+      const out = await t.serial(async () => {
+        const from = t.state.messages.length, before = t.state;
+        const r = await tenantAct(t, action, args);
+        if (t.wa && t.state === before) { t.wa.deliver(t.state, from, null, { skipOwner: true }); t.save(); }
+        return r;
+      });
+      return send(res, 200, out);
+    }
+    return send(res, 404, { error: 'not found' });
+  }
+
+  /** Register a new shop: a brand-new empty khata with this owner as its only login. */
+  async function register(req: http.IncomingMessage, res: http.ServerResponse) {
+    const j = await jsonBody(req);
+    if (!j.body) return send(res, j.code!, { error: j.error });
+    const b = j.body;
+    const phone = normPhone(b.phone);
+    if (phone && (registry.byPhone(phone) || auth.ownerPhones().includes(phone))) return send(res, 409, { error: 'This mobile number already has a shop. Please log in.' });
+    // validate everything before anything is created
+    const { createAuth: mk } = require('./auth') as typeof import('./auth');
+    const dry = mk({ env, store: { kind: 'mem', load: () => ({ owners: [], sessions: [], profile: null }), save() {}, flush: () => Promise.resolve(), close: () => Promise.resolve() } });
+    const check = dry.register(b);
+    if (!check.ok) return send(res, check.code, { error: check.error });
+    const id = newShopId();
+    const name = String(b.shopName).replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 80), owner = String(b.ownerName).replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 80);
+    try { await registry.add({ id, phone: phone!, name, createdAt: new Date((opts!.now || Date.now)()).toISOString() }); }
+    catch (e: any) { return e && e.code === 409 ? send(res, 409, { error: 'This mobile number already has a shop. Please log in.' }) : send(res, 503, { error: 'Could not create the shop right now. Please try again.' }); }
+    const t = await tenant(id, { name, owner });
+    if (!t) return send(res, 500, { error: 'server error' });
+    const out = t.auth.register(b);
+    await t.store.flush(); await t.authStore.flush();
+    return authRoute(req, res, Object.assign(out, { shopId: id }));
   }
 
   const server = http.createServer(async (req, res) => {
@@ -317,6 +524,25 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
       if (req.method === 'GET' && url.pathname === '/join') {
         const html = wa.joinPage(state);
         return html ? send(res, 200, html, 'text/html; charset=utf-8') : send(res, 404, { error: 'not found' });
+      }
+      // a self-registered shop's owner: everything below works on that shop only, never on this instance's shop
+      if (url.pathname.startsWith('/api/')) {
+        const ten = await tenantOf(req);
+        if (ten) { const done = await tenantRoute(req, res, url, ten.t, ten.owner); if (done !== null) return done; }
+      }
+      if (req.method === 'POST' && url.pathname === '/api/auth/register') return register(req, res);
+      if (req.method === 'POST' && url.pathname === '/api/auth/login') {
+        // an owner of a self-registered shop logs into that shop; every other number is the instance's own shop as before
+        const j = await jsonBody(req);
+        if (!j.body) return send(res, j.code!, { error: j.error });
+        const acct = registry.byPhone(normPhone(j.body.phone) || '');
+        const t = acct ? await tenant(acct.id) : null;
+        return authRoute(req, res, Object.assign((t ? t.auth : auth).login(j.body), t ? { shopId: t.id } : { shopId }));
+      }
+      if (url.pathname.startsWith('/api/wa/')) {
+        // the instance's own number is linked on /link (LINK_KEY), never from here
+        if (!isOwner(req)) return send(res, 403, { error: 'log in first' });
+        return send(res, 200, { home: true, connected: !!(web && web.status().linked), state: web ? web.status().state : 'off', note: web ? null : 'WhatsApp not connected yet.' });
       }
       if (url.pathname.startsWith('/api/auth/') || url.pathname === '/api/profile') {
         if (req.method === 'GET' && url.pathname === '/api/auth/status') {
@@ -383,8 +609,6 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
   }) as UdhaarServer;
   // The agent's own scheduler. The demo's "Agle din" button only moves the shop's clock forward,
   // so the real date never pulls the khata backwards.
-  const evening = +env.EVENING_HOUR! || 21;
-  const hourNow = opts.hour || (() => new Date().getHours());
   function tick() {
     const ran: string[] = [];
     return serial(async () => {
@@ -394,7 +618,7 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
       if (hourNow() >= evening && state.eveningSentFor !== state.today && state.today === now) { C.runAction(state, 'closeDay'); ran.push('closeDay'); }
       if (ran.length) { await brain.translateOut(state, from); wa.deliver(state, from); save(); }
       return ran;
-    });
+    }).then(async (ran) => { await tickTenants(); return ran; });
   }
   let timer: ReturnType<typeof setInterval> | null = null;
   if (env.REAL_CLOCK === '1') { timer = setInterval(() => { tick().catch(() => {}); }, 60 * 1000); timer.unref(); server.on('close', () => clearInterval(timer!)); }
@@ -405,10 +629,15 @@ function createServer(opts?: ServerOpts | null): UdhaarServer {
   server.whatsapp = wa;
   server.web = web;
   if (web && webOn) web.start();
-  server.on('close', () => { if (web) web.stop(); store.close().catch(() => {}); authStore.close().catch(() => {}); });
+  server.on('close', () => { if (web) web.stop(); store.close().catch(() => {}); authStore.close().catch(() => {}); registry.close().catch(() => {});
+    for (const t of loaded.values()) { if (t.web) t.web.stop(); t.store.close().catch(() => {}); t.authStore.close().catch(() => {}); } });
   server.store = store;
   server.auth = auth;
-  server.idle = () => queue.then(() => wa.idle()).then(() => web && web.idle());
+  server.registry = registry;
+  server.shop = (id: string) => (registry.has(id) ? tenant(id) : Promise.resolve(null));
+  // shops whose own WhatsApp number was linked before a restart reconnect on their own
+  try { for (const id of fs.readdirSync(waRoot)) if (registry.has(id) && fs.existsSync(path.join(waRoot, id, 'creds.json'))) tenant(id).catch(() => {}); } catch (e) { /* no shop has linked a number yet */ }
+  server.idle = () => queue.then(() => wa.idle()).then(() => web && web.idle()).then(() => Promise.all(Array.from(loaded.values()).map((t) => t.serial(() => {}).then(() => t.wa && t.wa.idle()).then(() => t.web && t.web.idle()))));
   return server;
 }
 
@@ -471,8 +700,14 @@ if (require.main === module) {
   const port = +process.env.PORT! || 8000;
   const shopId = C.DEMO_SHOPS[process.env.SHOP!] ? process.env.SHOP! : 'gupta';
   const dataDir = path.resolve(process.env.DATA_DIR || path.join(ROOT, 'data'));
-  Promise.all([openStore(process.env, dataDir, shopId), openAuthStore(process.env, dataDir, shopId)]).then(([store, authStore]) => {
-    createServer({ store, authStore }).listen(port, '0.0.0.0', () => {
+  // a self-registered shop is stored exactly like the instance's shop (same STORE, its own shop id / schema / files)
+  const openShop = async (id: string) => {
+    const e = Object.assign({}, process.env, { SHOP_ID: id });
+    const [store, authStore] = await Promise.all([openStore(e, dataDir, id), openAuthStore(e, dataDir, id)]);
+    return { store, authStore };
+  };
+  Promise.all([openStore(process.env, dataDir, shopId), openAuthStore(process.env, dataDir, shopId), openRegistry(process.env, dataDir)]).then(([store, authStore, registry]) => {
+    createServer({ store, authStore, registry, openShop }).listen(port, '0.0.0.0', () => {
       console.log('Udhaar Agent (' + (process.env.SHOP || 'gupta') + ') on :' + port + ', storage: ' + store.kind + ', AI chain: ' + [process.env.LLM_BASE_URL ? 'custom' : '', process.env.AGENT37_LLM_PROXY_URL ? 'router' : ''].filter(Boolean).concat('rules').join(' -> '));
     });
   }, (e) => { console.error('Storage failed to start: ' + e.message); process.exit(1); });

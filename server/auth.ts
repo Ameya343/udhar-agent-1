@@ -222,7 +222,8 @@ async function openAuthStore(env: Env, dataDir: string, shopId: string, opts?: {
 
 // ---------- the auth service ----------
 
-export interface AuthOpts { env: Env; store: AuthStore; now?: () => number }
+/** tokenPrefix: a self-registered shop's id; its session cookies read "<shopId>.<token>" so the server knows which shop to open. */
+export interface AuthOpts { env: Env; store: AuthStore; now?: () => number; tokenPrefix?: string }
 export type Result<T = {}> = ({ ok: true } & T) | { ok: false; code: number; error: string };
 export interface ProfileInput { shopName?: unknown; ownerName?: unknown; address?: unknown; gstRegistered?: unknown; gstin?: unknown; pan?: unknown }
 
@@ -255,7 +256,7 @@ function createAuth(o: AuthOpts) {
     return d.owners.find((x) => x.id === s.ownerId) || null;
   }
   function newSession(d: AuthData, owner: Owner): string {
-    const token = crypto.randomBytes(32).toString('base64url');
+    const token = (o.tokenPrefix ? o.tokenPrefix + '.' : '') + crypto.randomBytes(32).toString('base64url');
     d.sessions = d.sessions.filter((s) => s.expires > now()).slice(-19); // a few devices at most
     d.sessions.push({ tokenHash: sha(token), ownerId: owner.id, expires: now() + ttlMs });
     return token;
@@ -316,6 +317,32 @@ function createAuth(o: AuthOpts) {
       commit(next);
       return { ok: true, cookie: setCookie(token), owner: { phone: mask(phone), name: owner.name } };
     },
+    /** A self-registered shop's first and only owner: shop name, owner name, phone, password; GSTIN or PAN optional (checked when given). */
+    register(input: Record<string, unknown>): Result<{ cookie: string; owner: { phone: string; name: string } }> {
+      const d = data();
+      if (d.owners.length) return { ok: false, code: 409, error: 'This shop already has an owner. Please log in.' };
+      const phone = normPhone(input.phone);
+      if (!phone) return { ok: false, code: 400, error: 'Enter a 10-digit mobile number' };
+      const bad = passwordProblem(input.password);
+      if (bad) return { ok: false, code: 400, error: bad };
+      const shopName = str(input.shopName, 80), ownerName = str(input.ownerName, 80), address = str(input.address, 300);
+      if (!shopName) return { ok: false, code: 400, error: 'Shop name is required' };
+      if (!ownerName) return { ok: false, code: 400, error: 'Owner name is required' };
+      let profile: Profile = { shopName, ownerName, address, gstRegistered: false, taxKind: null, taxIdEnc: null, taxLast4: null, updatedAt: new Date(now()).toISOString() };
+      if (str(input.gstin, 40) || str(input.pan, 40)) {
+        const pr = profileFrom({ shopName, ownerName, address: address || '-', gstRegistered: !!str(input.gstin, 40), gstin: input.gstin, pan: input.pan }, null);
+        if (!pr.ok) return pr;
+        profile = Object.assign(pr.profile, { address });
+      }
+      const owner: Owner = { id: 'O' + crypto.randomBytes(6).toString('hex'), phone, name: ownerName, hash: hashPassword(String(input.password)), createdAt: new Date(now()).toISOString() };
+      const next: AuthData = { owners: [owner], sessions: [], profile };
+      const token = newSession(next, owner);
+      commit(next);
+      return { ok: true, cookie: setCookie(token), owner: { phone: mask(phone), name: owner.name } };
+    },
+    /** The owner's phone (10 digits), for WhatsApp: the owner's own chat on the shop's linked number. */
+    ownerPhones: () => data().owners.map((x) => x.phone),
+    ownerPhone: () => (data().owners[0] ? data().owners[0].phone : null),
     login(input: Record<string, unknown>): Result<{ cookie: string; owner: { phone: string; name: string } }> {
       const phone = normPhone(input.phone) || '';
       const key = phone || 'invalid';

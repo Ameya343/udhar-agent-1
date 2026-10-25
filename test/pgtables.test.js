@@ -15,7 +15,7 @@ const imp = require('../dist-server/scripts/import-json-to-pg.js');
 const URL = process.env.TEST_DATABASE_URL;
 const skip = URL ? false : 'TEST_DATABASE_URL not set';
 const TODAY = '2025-01-15';
-const TABLES = ['customer_txns', 'customers', 'trader_txns', 'traders', 'items', 'messages', 'orders', 'shop_extras', 'shops', 'schema_migrations'];
+const TABLES = ['customer_txns', 'customers', 'trader_txns', 'traders', 'items', 'messages', 'orders', 'shop_extras', 'shops', 'schema_migrations', 'shop_accounts'];
 const plain = (x) => JSON.parse(JSON.stringify(x));
 
 function pool() { const pg = require('pg'); return new pg.Pool({ connectionString: URL, types: pgTypes(pg) }); }
@@ -66,7 +66,7 @@ test('pure mapping round-trips a used khata', () => {
 test('migrations: apply once, idempotent, tables and RLS in place', { skip }, async () => {
   await reset();
   const p = pool();
-  assert.deepStrictEqual(await migrate(p), ['001_shop_tables.sql']);
+  assert.deepStrictEqual(await migrate(p), ['001_shop_tables.sql', '002_owner_auth.sql', '003_shop_accounts.sql']);
   assert.deepStrictEqual(await migrate(p), []);
   const r = await p.query("SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = ANY($1) AND relkind = 'r' ORDER BY relname", [TABLES.slice(0, 9)]);
   assert.strictEqual(r.rows.length, 9);
