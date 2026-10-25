@@ -264,7 +264,7 @@ flowchart LR
 | Database | PostgreSQL on Neon with row-level security, plus a JSON file backup written at the same time |
 | Hosting | Agent37 instance, deployed as an Agent37 template (Docker, `node:22-alpine`) |
 | Dashboard | Single HTML page built from `web/index.src.html`, served by the agent |
-| Tests | `node --test`, 319 tests |
+| Tests | `node --test`, 472 tests; live test run of 900 cases (`livetest/`) |
 
 ## 7. Data model
 
@@ -314,7 +314,7 @@ After the AI, the **safety rules always run**. Replies are written in Hinglish a
 
 | What | Result | Scope |
 |---|---|---|
-| Unit and flow tests (`npm test`) | **449 tests**: 432 pass, 0 fail, 17 skipped (tests that need a live database are skipped without one) | Parser, safety rules, WhatsApp flows, voice, PostgreSQL store, dashboard, stress cases, plus white-box tests of internal branches |
+| Unit and flow tests (`npm test`) | **472 tests**: 455 pass, 0 fail, 17 skipped (tests that need a live database are skipped without one) | Parser, safety rules, WhatsApp flows, voice, PostgreSQL store, dashboard, stress cases, plus white-box tests of internal branches |
 | Coverage | about **90.7% of lines** and **91.2% of branches** | Measured with Node's built-in test coverage over the same suite |
 | Stress test | about **7,000** generated messages, **0 open bugs** (every bug found was fixed) | **Rules path only** |
 | Five rounds of manual stress testing | every finding logged in Jira (KAN-15 to KAN-112), fixed with a regression test in `test/st3.test.js`, `test/st4.test.js`, `test/st5.test.js` and others | Rules path, plus the AI path with a mocked model |
@@ -326,16 +326,62 @@ Eval by category (rules only): owner credit, owner payment, owner list, customer
 
 ## 11. Agent37: how we use it
 
-Agent37 is not just a host here; it runs the shop's agent end to end.
+We use Agent37 for two things: it **runs** the product, and it **tests** the product.
 
-- **Always-on instance.** The shop's Agent37 instance runs the agent server and keeps the WhatsApp linked-device session alive 24/7, so messages are answered at any hour.
-- **The AI is the Agent37 model router.** Every owner and customer message, in any language, goes through the router and comes back as strict JSON that the safety rules then check. If our own endpoint is configured it goes first; the router is the main path, and the offline rules are only the last fallback.
+```mermaid
+flowchart LR
+  subgraph RUN[Use 1: Agent37 runs the product]
+    WA[Owner / customer WhatsApp] --> INST[Agent37 instance cnndwom1le<br/>template udhaar-gupta, always on]
+    INST --> AI[Agent37 model router<br/>reads every message]
+    AI --> SAFE[Safety rules + khata]
+    AI -. fails .-> RULES[Offline rules]
+    RULES --> SAFE
+    SAFE --> PG[(PostgreSQL)]
+  end
+  subgraph TEST[Use 2: Agent37 tests the product]
+    TR[/test-run page/] --> API[/api/ai-test/]
+    API --> GEN[Agent37 model writes new cases]
+    API --> FIX[Hand-checked cases]
+    GEN --> PIPE[Real AI pipeline<br/>in-memory shop, no WhatsApp send]
+    FIX --> PIPE
+    PIPE --> LIVE[Live pass / fail]
+  end
+```
+
+### Use 1: Agent37 runs the product
+
+- **Hosted instance.** The shop runs on Agent37 instance `cnndwom1le`, built from the Docker template `udhaar-gupta` (the `Dockerfile` in this repo, `node:22-alpine`). It is always on, at the public URL https://d3faa8ae5d0df30956f2.agent37.app.
+- **WhatsApp.** The instance keeps the WhatsApp linked-device session (Baileys) alive 24/7, so messages are answered at any hour.
+- **Data.** The khata lives in PostgreSQL, with a JSON copy in the instance's data folder (`/home/node/data`). Settings live in `/home/node/udhaar.env`. Updates keep the khata, because the data lives outside the image.
+- **The AI is the Agent37 model router.** Every owner and customer message, in any language, goes to the Agent37 LLM proxy (`AGENT37_LLM_PROXY_URL`, set by Agent37 on the instance) and comes back as strict JSON that the safety rules then check (`server/llm.ts`, `server/brain.ts`, `core/understand.ts`). If our own endpoint is configured it goes first; the offline rules are the fallback when the AI fails, times out or breaks the schema.
 - **Scheduler.** The instance's clock (`REAL_CLOCK=1`) drives the due-date reminders in the morning and the owner's evening summary.
-- **Template revisions and rollback.** The app is built as an Agent37 template (the `Dockerfile` in this repo). Each change is a new revision, and updating or rolling back is one step. Updates keep the khata, because the data lives outside the image.
-- **Backups.** Data lives in PostgreSQL and in a JSON copy in the instance's data folder, written on every save. Before risky changes we copy the env file to a backups folder on the instance.
-- **Public port.** The instance exposes the agent's port, which serves the dashboard (locked behind `ADMIN_KEY` in live mode) and `/healthz`.
-- **Files on the instance.** Settings live in `/home/node/udhaar.env`; data (JSON backup, WhatsApp session) lives in `/home/node/data`.
-- **Honest notes.** Today it is one shop on one instance; serving many shops per instance (per-shop schema) is built and tested but not switched on.
+- **Public port.** The agent's port serves the dashboard (locked behind `ADMIN_KEY` in live mode), `/healthz` and `/test-run`.
+
+**How to deploy (high level):**
+
+1. Build a new template revision from the repo: `npx agent37 templates build . --name udhaar-gupta --default-port 8000`.
+2. Update the instance `cnndwom1le` to the new revision. Rolling back is the same step with an older revision.
+3. Secrets and keys stay in the env file on the instance; they are never in the image or the repo.
+
+### Use 2: Agent37 tests the product
+
+- **AI-generated test cases.** The Agent37 model writes new shop messages (with a label: kind, name, amount), and the real pipeline reads them; results are checked against fixed rules (`server/ai-test.ts`, added in PR #2).
+- **Hand-checked cases on the AI.** A mix from every group of the 900 hand-checked cases is run with each owner message read by the Agent37 AI first, with the rules-only result beside it.
+- **Safe by design.** Every case runs on its own in-memory demo shop, with no WhatsApp sends. Results stream live to the page as pass / fail.
+- **Capped.** The AI runs spend model calls, so they are limited to **6 runs per hour** for the instance (`AI_TEST_MAX_PER_HOUR`), with at most 40 hand-checked (`AI_TEST_MAX_FIXED`) and 20 AI-written (`AI_TEST_MAX_CASES`) cases per run.
+
+**Results:**
+
+| Check | Result |
+|---|---|
+| Live test run (`livetest/`, 900 hand-checked Hinglish cases in 15 groups) | **900 / 900 pass** |
+| Unit and flow tests (`npm test`) | **472 tests**: 455 pass, 0 fail, 17 skipped (need a live database) |
+
+**How to run the test-run:**
+
+- Open `https://d3faa8ae5d0df30956f2.agent37.app/test-run` (or `http://localhost:8000/test-run` locally) and start a section. The hand-checked section runs in the browser; the two AI sections call `/api/ai-test` on the server.
+- `GET /api/ai-test` shows whether the AI test is on and which model chain it uses.
+- From the command line: `node livetest/run.js --fails` runs the 900 cases and prints only failures.
 
 ## 12. Nodus plan (planned, not live)
 
@@ -419,6 +465,8 @@ npm test
 | `stt/` | Own Whisper speech-to-text server (for Nodus) |
 | `web/index.src.html` | Dashboard source |
 | `test/` | Tests and stress sets |
+| `livetest/` | 900 hand-checked live cases and runner (`/test-run`, `node livetest/run.js`) |
+| `server/ai-test.ts`, `test-run.html` | AI test run: Agent37-written and hand-checked cases on the real AI |
 | `Dockerfile` | The Agent37 template image |
 | `docs/` | PostgreSQL notes, screenshots |
 
