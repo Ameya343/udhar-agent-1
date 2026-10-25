@@ -3961,7 +3961,14 @@ function factory() {
         'yah', 'yeh', 'ye', 'ya', 'is', 'in', 'un', 'us', 'aur', 'bhi', 'ka', 'ki', 'ke', 'sab', 'sabhi', 'ek', 'list', 'hisab'].map(normWord));
     const RS_BILL = /\s(bill|bil|bhej|bhejo|bhejna|bhejdo|send|bata|batao|batana|de do|dedo|de dena|de dijiye)\s/;
     /** Each clause that is one item with one price: { lines }, plus the clauses that are not (the command words). */
-    function rateSayParse(text) {
+    // "rate list: ...", "daam: ...": a header that says the rest is the shop's rates (KAN-145)
+    const RATE_HEAD = /^\s*(rate list|rate lisht|ret list|price list|rates?|daam|dam|bhav|bhaav)\s*[:\-–]\s*/i;
+    function rateSayParse(text, rateCtx) {
+        const head = RATE_HEAD.test(String(text));
+        if (head) {
+            text = String(text).replace(RATE_HEAD, '');
+            rateCtx = true;
+        }
         const segs = String(text).split(/[,;।\n!?|]+|(?<!\d)\.(?!\d)|\s(?:और|aur|and)\s/i).map((x) => String(cleanTranscript(x)).replace(/[|]/g, ' ').trim()).filter(Boolean);
         const lines = [], rest = [];
         let marked = false;
@@ -4003,7 +4010,8 @@ function factory() {
                 continue;
             }
             // "5 box bread" is how many (an order), never ₹5: an unmarked number before a unit is a quantity
-            const price = nums.find((x) => x.price) || nums.find((x) => !x.unitAfter) || null;
+            // in a rate list "aata 40 kilo" is ₹40 a kilo, not 40 kilos (KAN-145)
+            const price = nums.find((x) => x.price) || nums.find((x) => !x.unitAfter) || (rateCtx && nums.length === 1 ? nums[0] : null);
             const other = nums.find((x) => x !== price) || null;
             const qty = other ? other.v : null;
             if (!price || !(price.v >= 1)) {
@@ -4014,7 +4022,7 @@ function factory() {
             const rate = unit && qty != null && other.unitAfter ? Math.round((price.v / (qty * f)) * 100) / 100 : unit ? price.v / f : price.v;
             lines.push({ name: words.map((k) => d[k].toLowerCase()).join(' '), key: words.map((k) => n[k].replace(/-/g, '')).join(' '), qty, unit: base || null, price: rate });
         }
-        return { lines, rest, marked };
+        return { lines, rest, marked: marked || head };
     }
     /** The customers named in the command words ("sarasak ko bata do" = Sarthak), never a pronoun or an item. */
     function rateSayWho(state, rest) {
@@ -4041,12 +4049,21 @@ function factory() {
             return null;
         if (/\s(mang|mangva|mangvao|mangvana|mangao|mangana|order|ordar|stock|stok|mal|maal|wholesaler|supplier)/.test(all))
             return null; // stock to order, not shop rates
-        const p = rateSayParse(text);
+        const rateWord0 = /\s(rate|ret|reet|dam|bhav)\s/.test(all) || RATE_HEAD.test(text);
+        let p = rateSayParse(text, rateWord0);
+        // "aata 40 kilo, cheeni 45, Maggi 14": every part one item and one price, no person and no quantity, is a rate list too (KAN-145)
+        // the item first, then its price: "2 aata, 3 Maggi" is how many, never a rate
+        if (!rateWord0 && !p.marked && String(text).split(/[,;\n]+|\s(?:aur|and)\s/i).every((x) => /^\s*[^\d\s₹]/.test(x) || !x.trim())) {
+            const q = rateSayParse(text, true);
+            // ...unless a price is far off the one the shop knows ("aata 2 kilo" is two kilos, not ₹2 a kilo)
+            if (q.lines.length >= 2 && !q.rest.length && q.lines.every((l) => l.qty == null) && !q.lines.some((l) => { const o = prices(state)[l.key]; return o && o.rate > 0 && (l.price > 2 * o.rate || 2 * l.price < o.rate); }))
+                p = Object.assign(q, { marked: true });
+        }
         const asksBill = RS_BILL.test(all) && /\s(rate|ret|reet|dam|bhav|bill|bil|list)\s/.test(all);
         const out = [];
         const reply = (t, kind) => emit(state, out, 'owner', t, { kind });
         let lines;
-        const rateWord = /\s(rate|ret|reet|dam|bhav)\s/.test(all);
+        const rateWord = rateWord0;
         // "dal 3 kilo 360 ... Deshmukh kaka": a sale with quantities and a person is an udhaar entry, not a rate list
         if (!asksBill && tokenize(text).norm.some((w) => w.length >= 3 && !HONORIFICS.has(w) && isCustomerWord(state, w)))
             return null;
@@ -5916,6 +5933,12 @@ function factory() {
             if (!who.fresh && supEntries(state, who.key).some((k) => supOwed(k) > 0))
                 return { kind: 'paid', key: who.key, name: who.name, amount };
         }
+        // "Agrawal Traders ko 5000 dena hai": the shop owes a supplier, so it goes on the supplier khata, never a customer's (KAN-143)
+        if (ko > 0 && amount && /\s(dena|dene|dena hai|dene hai|dene hain|dena he|baki hai|udhar hai|dena baki)\s/.test(t) && !/\s(de diye|de diya|diye|diya|chuka|chukaya|paid)\s/.test(t)) {
+            const who = nameAt(ko);
+            if (who.key && (!who.fresh || SUPPLIER_WORD.test(both(tok.display.slice(0, ko).join(' ')))))
+                return { kind: 'new', key: who.key, name: who.name, amount, dueDate: due || addDays(state.today, 7), lines: [] };
+        }
         // "Hindustan agency ka 650 ka bill aaya": maal from a supplier the shop knows (or one named like a business)
         if (ka > 0 && amount && /\s(bil|bill|invoice)\s/.test(t) && /\s(aya|a gaya|aa gaya|mila|bheja|diya|hai|he)\s/.test(t)) {
             const who = nameAt(ka);
@@ -6248,6 +6271,7 @@ function factory() {
         }
         return lines;
     }
+    const STOCK_HEAD = /^\s*(stock|stok|staak|maal order|stock order)\b\s*(?:[:\-–]|(?=\d))/i;
     const WS_ORDER = /\s(order|ordar|ardar|mangva|mangvado|mangvao|mangvana|mangvalo|mangao|manga do|manga lo|mangado|mangalo|mangana|bhijva|bhijvao|bhijvado|mangwa|mangwado|mangwao|mangwana)\s/;
     const WS_ARRIVED = /\s(maal|mal|saman|samaan|saaman|order|delivery|dilivery)\s(aa gaya|aa gya|aa gayi|aa gai|aa gaye|aagaya|aaya|aya|pahunch gaya|pahuch gaya|pahunch gya|mil gaya|mil gya|aa chuka|ho gaya|ho gayi|ho gai)\s/;
     const WS_LIST = /\s(wholesaler list|wholesalers|wholesaler kaun|sab wholesaler|saare wholesaler|sare wholesaler|kaun kya deta|kon kya deta|kaun kya bhejta|kiska number|wholesaler ke number|wholesaler ka number|supplier ke number)\s/;
@@ -6305,9 +6329,13 @@ function factory() {
             const o = mine.slice().reverse().find((x) => x.bill) || mine[mine.length - 1] || null; // the order with a bill, else the latest
             return { kind: 'arrived', wsId: o ? o.wsId : named[0].w.id, orderId: o ? o.id : null, amount, paid };
         }
-        if (!WS_ORDER.test(t))
+        // "stock: 20 kilo aata, 10 kilo cheeni": a list headed "stock" is a stock order (KAN-144)
+        const head = STOCK_HEAD.exec(raw);
+        if (!WS_ORDER.test(t) && !head)
             return null;
         const skip = new Set();
+        if (head)
+            skip.add(0);
         let ws = null;
         if (named.length === 1) {
             ws = named[0].w;
@@ -6881,7 +6909,7 @@ function factory() {
                 askAlong(state, out);
                 return { intent: { intent: 'wholesale', kind: ws.kind }, messages: dedupe(out) };
             }
-            const sp = stockOk && (parseSupplier(state, text) || (canonStock && parseSupplier(state, canonStock)));
+            const sp = (stockOk || aiRead === 'udhaar' || aiRead === 'jama') && (parseSupplier(state, text) || (canonStock && parseSupplier(state, canonStock)));
             if (sp) {
                 const out = [];
                 applySupplier(state, sp, (t) => emit(state, out, 'owner', t, { kind: 'supplier' }));
